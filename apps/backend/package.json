@@ -1,0 +1,22 @@
+{
+  "name": "backend",
+  "scripts": {
+    "dev": "bun --env-file=../../.env.local run --hot src/server.ts",
+    "start": "bun --env-file=../../.env.local run src/server.ts",
+    "lint": "eslint ./src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no tests yet' && exit 0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.76.1",
+    "@vibe/shared": "workspace:*",
+    "hono": "^4.10.1",
+    "nanoid": "^3.3.11",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  },
+  "packageManager": "pnpm@10.15.0+sha512.486ebc259d3e999a4e8691ce03b5cac4a71cbeca39372a9b762cb500cfdf0873e2cb16abe3d951b1ee2cf012503f027b98b6584e4df22524e0c7450d9ec7aa7b"
+}

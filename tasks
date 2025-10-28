@@ -1,0 +1,5 @@
+TODOs:
+- [x] Secure `public.permissions` and `public.role_permissions` with RLS and restrict modifications to privileged actors.
+- [x] Lock down requester policy on `public.time_off_requests` so self-service updates can only cancel pending requests.
+- [x] Require tenant membership/permissions in `public.time_entries` and `public.time_off_requests` insert/update policies to stop cross-tenant writes.
+- [x] Prevent arbitrary tenant reassignment by tightening `public.profiles` insert/update policies.

@@ -1,0 +1,79 @@
+---
+alwaysApply: true
+---
+
+## Vibe Scaffold – Project-wide Cursor Rules
+
+### Monorepo and Package Management
+- Prefer pnpm for all commands. Use workspace filtering when targeting apps or packages (e.g., `pnpm --filter frontend dev`).
+- Use Turbo tasks at the root for orchestration: `dev`, `build`, `start`, `lint`, `typecheck`, `test`, `clean`.
+- New workspaces live under `apps/*` or `packages/*`; reference internal deps with `"workspace:*"`.
+
+### TypeScript
+- Strict mode enabled; avoid `any` and unsafe casts.
+- Use `moduleResolution: bundler` and ES modules consistently.
+- Export types and APIs with explicit annotations on public surfaces.
+- Use path aliases: `~/` maps to `apps/frontend/app`, `@vibe/shared` imports from the shared package.
+
+### Frontend (apps/frontend)
+- Framework: React 19 + React Router 7 with SSR enabled by default (`react-router.config.ts`).
+- Add routes by editing `app/routes.ts` and creating files in `app/routes/*`. Export `meta`, `loader`, `action` only when needed.
+- After adding routes or types that affect routing, run `pnpm --filter frontend typecheck` to regenerate route types.
+- Styling: Tailwind CSS v4 via `app/app.css`. Prefer utility classes and CSS variables (e.g., `--primary`, `--background`).
+- UI components: shadcn/ui under `app/components/ui`. Use existing primitives, keep APIs minimal and composable.
+- Theming: use `ThemeProvider` with `storageKey: "vite-ui-theme"`. Use `ModeToggle` for theme switching. Keep no-flash script in `root.tsx`.
+- Data fetching: Prefer route `loader`s. Validate external data with zod schemas from `@vibe/shared`. Provide graceful fallbacks if backend is unavailable.
+
+#### React
+- Prefer functional components and hooks; no class components.
+- Co-locate data in React Router loaders; avoid client-side fetching in components when possible.
+- Extract reusable logic into custom hooks.
+- Use Context only for cross-cutting concerns (theme, auth); avoid using it as a global store.
+- Define props and public APIs with TypeScript types/interfaces (no PropTypes).
+- Optimize intentionally: use React.memo/useMemo/useCallback only when profiling or prop stability warrants it.
+- Use fragments to avoid extra DOM wrappers.
+- Render lists with stable, meaningful keys (avoid array index).
+- Prefer composition over inheritance; keep components small and focused.
+- SSR-safety: don’t access window/document during render; guard effects for client-only.
+
+### Backend (apps/backend)
+- Framework: Hono (TypeScript), served via Bun in dev (`bun run --hot`).
+- Enable CORS for local development; keep routes under `src/index.ts` and server bootstrap in `src/server.ts`.
+- Share types and response shapes with `@vibe/shared`; keep endpoints returning objects validated by zod schemas.
+
+### Shared package (@vibe/shared)
+- Place cross-cutting zod schemas and types here. Keep modules small, additive, and framework-agnostic.
+- Export both schema and inferred types for every API surface.
+
+### Code Style
+- Favor clear names over abbreviations. Functions as verbs, variables as nouns.
+- Use early returns; avoid deep nesting and unnecessary try/catch.
+- Only include comments where non-obvious context is required (rationale, invariants, edge cases).
+- Match existing formatting; don’t reformat unrelated code in edits.
+
+### Files, Paths, and Imports
+- Use `~/` alias for app-local imports and `@vibe/shared` for shared code.
+- Do not create circular dependencies between `apps/*` and `packages/*`.
+- Keep `vite.config.ts` and `routes.ts` changes minimal and aligned to current patterns.
+
+### Scripts and Commands
+- Use root scripts for multi-package tasks: `pnpm dev`, `pnpm build`, etc.
+- Use per-app scripts for focused work: `pnpm --filter frontend dev`, `pnpm --filter backend dev`.
+- For shadcn components, install via CLI and keep generated files under `app/components/ui`.
+
+### Env and Configuration
+- Keep shared local variables in root `.env` and app-specific config as needed; avoid hardcoding secrets.
+- Frontend uses `VITE_*` env for public values; backend reads from `process.env`.
+
+### Testing, Linting, Typechecking
+- Prefer adding ESLint and test presets at package-level and wiring them to Turbo tasks (`lint`, `test`, `typecheck`).
+- Run `typecheck` before committing breaking changes across packages.
+
+### PR/Commit Guidance
+- Scope changes to a single feature or package when possible.
+- Update docs and examples (`README.md`, example routes) when editing public-facing behavior.
+
+### Assistant Behavior in This Repo
+- When adding UI, prefer shadcn primitives and Tailwind utilities; keep components accessible.
+- When adding API endpoints, mirror response schemas in `@vibe/shared` and validate inputs/outputs with zod.
+- Prefer minimal edits that integrate cleanly with the current structure and conventions.

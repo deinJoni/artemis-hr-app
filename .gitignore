@@ -1,0 +1,68 @@
+# --- Node.js & package managers ---
+node_modules/
+.pnpm-store/
+.pnpm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Build artifacts ---
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.vercel/
+.expo/
+storybook-static/
+.storybook-out/
+.parcel-cache/
+
+# --- TypeScript & tooling caches ---
+*.tsbuildinfo
+.turbo/
+.eslintcache
+.stylelintcache
+.cache/
+coverage/
+.nyc_output/
+.jest/
+
+# --- Environment files ---
+.env
+.env.*
+!.env.example
+
+# --- Editor directories ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# --- OS generated files ---
+.DS_Store
+Thumbs.db
+
+# --- Temp files ---
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*.pid
+*.pid.lock
+
+# --- Database & Supabase ---
+supabase/.branches/
+supabase/.temp/
+supabase/.local/
+supabase/.global-config/
+supabase/docker/
+*.sqlite
+*.db
+*.db-journal

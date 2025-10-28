@@ -1,0 +1,42 @@
+{
+  "name": "vibe-scaffold-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "start": "turbo run start",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean:scaffold": "bash ./scripts/clean-scaffold.sh",
+    "format": "prettier . --check",
+    "format:fix": "prettier . --write",
+    "clean": "turbo run clean",
+    "db:up": "supabase start",
+    "db:down": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:mig:new": "supabase migration new",
+    "db:diff": "supabase db diff -f",
+    "db:push": "supabase db push",
+    "db:bootstrap": "supabase db reset",
+    "db:types:local": "supabase gen types typescript --local > packages/shared/src/database.types.ts",
+    "db:types:linked": "supabase gen types typescript --linked > packages/shared/src/database.types.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^9.38.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "prettier": "^3.6.2",
+    "supabase": "^2.53.6",
+    "turbo": "^2.5.8"
+  },
+  "packageManager": "pnpm@10.15.0"
+}
