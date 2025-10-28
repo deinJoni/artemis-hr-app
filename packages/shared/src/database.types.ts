@@ -147,11 +147,192 @@ export type Database = {
             foreignKeyName: "check_ins_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "check_ins_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "check_ins_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "employees"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "check_ins_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      departments: {
+        Row: {
+          cost_center: string | null
+          created_at: string
+          description: string | null
+          head_employee_id: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          cost_center?: string | null
+          created_at?: string
+          description?: string | null
+          head_employee_id?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          cost_center?: string | null
+          created_at?: string
+          description?: string | null
+          head_employee_id?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "departments_head_employee_id_fkey"
+            columns: ["head_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_goal_summaries"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "departments_head_employee_id_fkey"
+            columns: ["head_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "departments_head_employee_id_fkey"
+            columns: ["head_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "departments_head_employee_id_fkey"
+            columns: ["head_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "departments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "departments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "departments_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_audit_log: {
+        Row: {
+          action: string
+          change_reason: string | null
+          changed_by: string
+          created_at: string
+          employee_id: string
+          field_name: string | null
+          id: string
+          ip_address: string | null
+          new_value: Json | null
+          old_value: Json | null
+          tenant_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          change_reason?: string | null
+          changed_by: string
+          created_at?: string
+          employee_id: string
+          field_name?: string | null
+          id?: string
+          ip_address?: string | null
+          new_value?: Json | null
+          old_value?: Json | null
+          tenant_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          change_reason?: string | null
+          changed_by?: string
+          created_at?: string
+          employee_id?: string
+          field_name?: string | null
+          id?: string
+          ip_address?: string | null
+          new_value?: Json | null
+          old_value?: Json | null
+          tenant_id?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_audit_log_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_goal_summaries"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_audit_log_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_audit_log_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "employee_audit_log_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_audit_log_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -205,40 +386,58 @@ export type Database = {
       }
       employee_documents: {
         Row: {
+          category: string | null
           description: string | null
           employee_id: string
+          expiry_date: string | null
           file_name: string
           file_size: number
           id: string
+          is_current: boolean
           mime_type: string
+          previous_version_id: string | null
           storage_path: string
           tenant_id: string
+          updated_at: string
           uploaded_at: string
           uploaded_by: string
+          version: number
         }
         Insert: {
+          category?: string | null
           description?: string | null
           employee_id: string
+          expiry_date?: string | null
           file_name: string
           file_size: number
           id?: string
+          is_current?: boolean
           mime_type: string
+          previous_version_id?: string | null
           storage_path: string
           tenant_id: string
+          updated_at?: string
           uploaded_at?: string
           uploaded_by: string
+          version?: number
         }
         Update: {
+          category?: string | null
           description?: string | null
           employee_id?: string
+          expiry_date?: string | null
           file_name?: string
           file_size?: number
           id?: string
+          is_current?: boolean
           mime_type?: string
+          previous_version_id?: string | null
           storage_path?: string
           tenant_id?: string
+          updated_at?: string
           uploaded_at?: string
           uploaded_by?: string
+          version?: number
         }
         Relationships: [
           {
@@ -252,7 +451,28 @@ export type Database = {
             foreignKeyName: "employee_documents_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_documents_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "employee_documents_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_documents_previous_version_id_fkey"
+            columns: ["previous_version_id"]
+            isOneToOne: false
+            referencedRelation: "employee_documents"
             referencedColumns: ["id"]
           },
           {
@@ -302,41 +522,197 @@ export type Database = {
           },
         ]
       }
-      employees: {
+      employee_status_history: {
         Row: {
           created_at: string
-          custom_fields: Json | null
-          email: string
+          created_by: string
+          effective_date: string
+          employee_id: string
           id: string
-          manager_id: string | null
-          name: string
-          tenant_id: string
+          reason: string | null
+          status: string
         }
         Insert: {
           created_at?: string
-          custom_fields?: Json | null
-          email: string
+          created_by: string
+          effective_date: string
+          employee_id: string
           id?: string
-          manager_id?: string | null
-          name: string
-          tenant_id: string
+          reason?: string | null
+          status: string
         }
         Update: {
           created_at?: string
-          custom_fields?: Json | null
-          email?: string
+          created_by?: string
+          effective_date?: string
+          employee_id?: string
           id?: string
-          manager_id?: string | null
-          name?: string
-          tenant_id?: string
+          reason?: string | null
+          status?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "employee_status_history_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_goal_summaries"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_status_history_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_status_history_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "employee_status_history_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employees: {
+        Row: {
+          bank_account_encrypted: string | null
+          created_at: string
+          custom_fields: Json | null
+          date_of_birth: string | null
+          department_id: string | null
+          email: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          employee_number: string | null
+          employment_type: string | null
+          end_date: string | null
+          home_address: Json | null
+          id: string
+          job_title: string | null
+          manager_id: string | null
+          name: string
+          nationality: string | null
+          phone_personal: string | null
+          phone_work: string | null
+          profile_completion_pct: number | null
+          salary_amount: number | null
+          salary_currency: string | null
+          salary_frequency: string | null
+          start_date: string | null
+          status: string
+          tax_id_encrypted: string | null
+          tenant_id: string
+          updated_at: string
+          user_id: string | null
+          work_location: string | null
+        }
+        Insert: {
+          bank_account_encrypted?: string | null
+          created_at?: string
+          custom_fields?: Json | null
+          date_of_birth?: string | null
+          department_id?: string | null
+          email: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          employee_number?: string | null
+          employment_type?: string | null
+          end_date?: string | null
+          home_address?: Json | null
+          id?: string
+          job_title?: string | null
+          manager_id?: string | null
+          name: string
+          nationality?: string | null
+          phone_personal?: string | null
+          phone_work?: string | null
+          profile_completion_pct?: number | null
+          salary_amount?: number | null
+          salary_currency?: string | null
+          salary_frequency?: string | null
+          start_date?: string | null
+          status?: string
+          tax_id_encrypted?: string | null
+          tenant_id: string
+          updated_at?: string
+          user_id?: string | null
+          work_location?: string | null
+        }
+        Update: {
+          bank_account_encrypted?: string | null
+          created_at?: string
+          custom_fields?: Json | null
+          date_of_birth?: string | null
+          department_id?: string | null
+          email?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          employee_number?: string | null
+          employment_type?: string | null
+          end_date?: string | null
+          home_address?: Json | null
+          id?: string
+          job_title?: string | null
+          manager_id?: string | null
+          name?: string
+          nationality?: string | null
+          phone_personal?: string | null
+          phone_work?: string | null
+          profile_completion_pct?: number | null
+          salary_amount?: number | null
+          salary_currency?: string | null
+          salary_frequency?: string | null
+          start_date?: string | null
+          status?: string
+          tax_id_encrypted?: string | null
+          tenant_id?: string
+          updated_at?: string
+          user_id?: string | null
+          work_location?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employees_department_fk"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_department_fk"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["department_id"]
+          },
           {
             foreignKeyName: "employees_manager_id_fkey"
             columns: ["manager_id"]
             isOneToOne: false
             referencedRelation: "employee_goal_summaries"
             referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employees_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
           },
           {
             foreignKeyName: "employees_manager_id_fkey"
@@ -482,6 +858,20 @@ export type Database = {
             foreignKeyName: "goals_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goals_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "goals_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "employees"
             referencedColumns: ["id"]
           },
@@ -516,6 +906,100 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "memberships_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      overtime_balances: {
+        Row: {
+          carry_over_hours: number
+          created_at: string
+          id: string
+          overtime_hours: number
+          overtime_multiplier: number
+          period: string
+          regular_hours: number
+          tenant_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          carry_over_hours?: number
+          created_at?: string
+          id?: string
+          overtime_hours?: number
+          overtime_multiplier?: number
+          period: string
+          regular_hours?: number
+          tenant_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          carry_over_hours?: number
+          created_at?: string
+          id?: string
+          overtime_hours?: number
+          overtime_multiplier?: number
+          period?: string
+          regular_hours?: number
+          tenant_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "overtime_balances_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      overtime_rules: {
+        Row: {
+          created_at: string
+          daily_multiplier: number
+          daily_threshold: number
+          id: string
+          is_default: boolean
+          name: string
+          tenant_id: string
+          updated_at: string
+          weekly_multiplier: number
+          weekly_threshold: number
+        }
+        Insert: {
+          created_at?: string
+          daily_multiplier?: number
+          daily_threshold?: number
+          id?: string
+          is_default?: boolean
+          name: string
+          tenant_id: string
+          updated_at?: string
+          weekly_multiplier?: number
+          weekly_threshold?: number
+        }
+        Update: {
+          created_at?: string
+          daily_multiplier?: number
+          daily_threshold?: number
+          id?: string
+          is_default?: boolean
+          name?: string
+          tenant_id?: string
+          updated_at?: string
+          weekly_multiplier?: number
+          weekly_threshold?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "overtime_rules_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -649,33 +1133,60 @@ export type Database = {
       }
       time_entries: {
         Row: {
+          approval_status: string
+          approved_at: string | null
+          approver_user_id: string | null
+          break_minutes: number
           clock_in_at: string
           clock_out_at: string | null
           created_at: string
           duration_minutes: number | null
+          edited_by: string | null
+          entry_type: string
           id: string
           location: Json | null
+          notes: string | null
+          project_task: string | null
           tenant_id: string
+          updated_at: string
           user_id: string
         }
         Insert: {
+          approval_status?: string
+          approved_at?: string | null
+          approver_user_id?: string | null
+          break_minutes?: number
           clock_in_at?: string
           clock_out_at?: string | null
           created_at?: string
           duration_minutes?: number | null
+          edited_by?: string | null
+          entry_type?: string
           id?: string
           location?: Json | null
+          notes?: string | null
+          project_task?: string | null
           tenant_id: string
+          updated_at?: string
           user_id: string
         }
         Update: {
+          approval_status?: string
+          approved_at?: string | null
+          approver_user_id?: string | null
+          break_minutes?: number
           clock_in_at?: string
           clock_out_at?: string | null
           created_at?: string
           duration_minutes?: number | null
+          edited_by?: string | null
+          entry_type?: string
           id?: string
           location?: Json | null
+          notes?: string | null
+          project_task?: string | null
           tenant_id?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -684,6 +1195,61 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      time_entry_audit: {
+        Row: {
+          change_reason: string | null
+          changed_by: string
+          created_at: string
+          field_name: string
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+          time_entry_id: string
+        }
+        Insert: {
+          change_reason?: string | null
+          changed_by: string
+          created_at?: string
+          field_name: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          time_entry_id: string
+        }
+        Update: {
+          change_reason?: string | null
+          changed_by?: string
+          created_at?: string
+          field_name?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          time_entry_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "time_entry_audit_time_entry_id_fkey"
+            columns: ["time_entry_id"]
+            isOneToOne: false
+            referencedRelation: "pending_time_approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entry_audit_time_entry_id_fkey"
+            columns: ["time_entry_id"]
+            isOneToOne: false
+            referencedRelation: "time_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entry_audit_time_entry_id_fkey"
+            columns: ["time_entry_id"]
+            isOneToOne: false
+            referencedRelation: "time_entry_summary"
             referencedColumns: ["id"]
           },
         ]
@@ -1035,6 +1601,20 @@ export type Database = {
             foreignKeyName: "workflow_runs_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_runs_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "workflow_runs_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "employees"
             referencedColumns: ["id"]
           },
@@ -1191,6 +1771,24 @@ export type Database = {
       }
     }
     Views: {
+      department_hierarchy: {
+        Row: {
+          cost_center: string | null
+          description: string | null
+          employee_count: number | null
+          full_path: string | null
+          head_email: string | null
+          head_employee_id: string | null
+          head_name: string | null
+          id: string | null
+          level: number | null
+          name: string | null
+          parent_id: string | null
+          path: string[] | null
+          tenant_id: string | null
+        }
+        Relationships: []
+      }
       employee_goal_summaries: {
         Row: {
           active_goals: number | null
@@ -1204,6 +1802,134 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "employees_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_summary: {
+        Row: {
+          created_at: string | null
+          department_id: string | null
+          department_name: string | null
+          email: string | null
+          employee_number: string | null
+          id: string | null
+          job_title: string | null
+          manager_id: string | null
+          manager_name: string | null
+          name: string | null
+          profile_completion_pct: number | null
+          status: string | null
+          tenant_id: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employees_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pending_time_approvals: {
+        Row: {
+          approval_status: string | null
+          approved_at: string | null
+          approver_name: string | null
+          approver_user_id: string | null
+          break_minutes: number | null
+          clock_in_at: string | null
+          clock_out_at: string | null
+          created_at: string | null
+          duration_minutes: number | null
+          edited_by: string | null
+          editor_name: string | null
+          employee_email: string | null
+          employee_name: string | null
+          employee_number: string | null
+          entry_type: string | null
+          id: string | null
+          manager_email: string | null
+          manager_id: string | null
+          manager_name: string | null
+          net_minutes: number | null
+          notes: string | null
+          project_task: string | null
+          tenant_id: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employees_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_goal_summaries"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employees_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "employees_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entries_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      time_entry_summary: {
+        Row: {
+          approval_status: string | null
+          approved_at: string | null
+          approver_name: string | null
+          approver_user_id: string | null
+          break_minutes: number | null
+          clock_in_at: string | null
+          clock_out_at: string | null
+          created_at: string | null
+          duration_minutes: number | null
+          edited_by: string | null
+          editor_name: string | null
+          employee_email: string | null
+          employee_name: string | null
+          employee_number: string | null
+          entry_type: string | null
+          id: string | null
+          net_minutes: number | null
+          notes: string | null
+          project_task: string | null
+          tenant_id: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "time_entries_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -1241,6 +1967,36 @@ export type Database = {
       app_current_user_id: { Args: never; Returns: string }
       app_has_permission: {
         Args: { permission: string; tenant: string }
+        Returns: boolean
+      }
+      calculate_profile_completion: {
+        Args: { employee_row: Database["public"]["Tables"]["employees"]["Row"] }
+        Returns: number
+      }
+      check_time_entry_overlap: {
+        Args: {
+          p_end_time: string
+          p_exclude_id?: string
+          p_start_time: string
+          p_tenant_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      create_time_entry_audit: {
+        Args: {
+          p_change_reason?: string
+          p_changed_by: string
+          p_field_name: string
+          p_new_value: Json
+          p_old_value: Json
+          p_time_entry_id: string
+        }
+        Returns: string
+      }
+      generate_employee_number: { Args: never; Returns: string }
+      requires_time_entry_approval: {
+        Args: { entry_date: string; entry_type: string; user_id: string }
         Returns: boolean
       }
     }

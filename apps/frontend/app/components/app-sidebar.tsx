@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
-import { CalendarDays, GitBranch, LayoutDashboard, LifeBuoy, Settings, Users, UserCircle2, LogOut } from "lucide-react";
+import { CalendarDays, GitBranch, LayoutDashboard, LifeBuoy, Settings, Users, UserCircle2, LogOut, Clock, CheckCircle, TrendingUp } from "lucide-react";
 import { NavLink } from "react-router";
 import type { AccountBootstrapResponse } from "@vibe/shared";
 import { supabase } from "~/lib/supabase";
@@ -31,6 +31,9 @@ type AppSidebarProps = {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", to: "/", icon: LayoutDashboard, disabled: false },
+  { label: "Time Entries", to: "/time/entries", icon: Clock, disabled: false },
+  { label: "Overtime", to: "/time/overtime", icon: TrendingUp, disabled: false },
+  { label: "Approvals", to: "/time/approvals", icon: CheckCircle, disabled: false, requires: "team" },
   { label: "Calendar", to: "/calendar", icon: CalendarDays, disabled: false, requires: "calendar" },
   { label: "My Team", to: "/my-team", icon: UserCircle2, disabled: false, requires: "team" },
   { label: "Workflows", to: "/workflows", icon: GitBranch, disabled: false },

@@ -276,7 +276,15 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
           <ActionItems apiBaseUrl={apiBaseUrl} session={session} />
         </div>
 
-        <MyTimeWidget apiBaseUrl={apiBaseUrl} session={session} onRequestTimeOff={() => setRequestOpen(true)} />
+        <MyTimeWidget 
+          apiBaseUrl={apiBaseUrl} 
+          session={session} 
+          onRequestTimeOff={() => setRequestOpen(true)}
+          onTimeEntrySuccess={() => {
+            // Refresh any relevant data if needed
+            console.log('Time entry created successfully');
+          }}
+        />
 
         <RequestTimeOffDialog
           apiBaseUrl={apiBaseUrl}

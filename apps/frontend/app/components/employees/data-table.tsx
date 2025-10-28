@@ -41,6 +41,11 @@ type EmployeeDataTableProps = {
   onRemove: (employee: Employee) => void;
   removingId: string | null;
   toolbar?: React.ReactNode;
+  selectedEmployees?: Set<string>;
+  onSelectEmployee?: (employeeId: string, selected: boolean) => void;
+  onSelectAll?: (selected: boolean) => void;
+  departmentFilter?: string;
+  statusFilter?: string;
 };
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -63,6 +68,11 @@ export function EmployeeDataTable({
   onRemove,
   removingId,
   toolbar,
+  selectedEmployees = new Set(),
+  onSelectEmployee,
+  onSelectAll,
+  departmentFilter,
+  statusFilter,
 }: EmployeeDataTableProps) {
   const pageCount = total > 0 ? Math.ceil(total / pageSize) : 1;
 
@@ -96,6 +106,9 @@ export function EmployeeDataTable({
     meta: {
       onRemove,
       removingId,
+      selectedEmployees,
+      onSelectEmployee,
+      onSelectAll,
     } satisfies EmployeeTableMeta,
   });
 

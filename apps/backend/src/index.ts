@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie } from 'hono/cookie'
 import { supabaseAdmin, supabaseForUser } from './lib/supabase'
+import { AuditLogger, extractRequestInfo, findChanges } from './lib/audit-logger'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import type { Database, Json } from '@database.types.ts'
 import type {
@@ -15,6 +16,19 @@ import {
   CreateTimeOffRequestInputSchema,
   ApproveTimeOffRequestInputSchema,
   CalendarResponseSchema,
+  // New time management schemas
+  ManualTimeEntryInputSchema,
+  TimeEntryUpdateInputSchema,
+  TimeEntryApprovalInputSchema,
+  TimeEntryListQuerySchema,
+  TimeEntryListResponseSchema,
+  OvertimeBalanceSchema,
+  OvertimeRuleSchema,
+  OvertimeCalculationRequestSchema,
+  PendingApprovalsResponseSchema,
+  TeamTimeSummaryResponseSchema,
+  TimeExportRequestSchema,
+  ManagerCalendarFilterSchema,
 } from '@vibe/shared'
 import {
   AccountBootstrapInputSchema,
@@ -40,6 +54,25 @@ import {
   EmployeeCustomFieldDefSchema,
   type EmployeeCustomFieldType,
   type EmployeeDocument,
+  // New HR schemas
+  DepartmentSchema,
+  DepartmentCreateInputSchema,
+  DepartmentUpdateInputSchema,
+  DepartmentListResponseSchema,
+  DepartmentHierarchyResponseSchema,
+  EmployeeAuditLogSchema,
+  EmployeeAuditLogResponseSchema,
+  EmployeeStatusHistorySchema,
+  EmployeeStatusHistoryCreateInputSchema,
+  CSVImportPreviewSchema,
+  CSVImportConfirmSchema,
+  CSVExportRequestSchema,
+  CSVImportResultSchema,
+  type Department,
+  type DepartmentCreateInput,
+  type DepartmentUpdateInput,
+  type EmployeeAuditLog,
+  type EmployeeStatusHistory,
   WorkflowListResponseSchema,
   WorkflowDetailResponseSchema,
   GoalCreateInputSchema,
@@ -720,14 +753,14 @@ app.get('/api/employees/:tenantId/:id', async (c) => {
 
   const employee = await supabase
     .from('employees')
-    .select('id, tenant_id, email, name, manager_id, custom_fields, created_at')
+    .select('*')
     .eq('tenant_id', tenantId)
     .eq('id', employeeId)
     .maybeSingle()
   if (employee.error) return c.json({ error: employee.error.message }, 400)
   if (!employee.data) return c.json({ error: 'Employee not found' }, 404)
 
-  const [fieldDefs, managerRows, canEdit, canManageDocs, canViewDocs] = await Promise.all([
+  const [fieldDefs, managerRows, canEdit, canManageDocs, canViewDocs, canViewAudit, canViewCompensation, canEditCompensation, canViewSensitive, canEditSensitive] = await Promise.all([
     supabase
       .from('employee_custom_field_defs')
       .select('id, tenant_id, name, key, type, required, options, position, created_at')
@@ -741,6 +774,11 @@ app.get('/api/employees/:tenantId/:id', async (c) => {
     supabase.rpc('app_has_permission', { permission: 'employees.write', tenant: tenantId }),
     supabase.rpc('app_has_permission', { permission: 'employees.documents.write', tenant: tenantId }),
     supabase.rpc('app_has_permission', { permission: 'employees.documents.read', tenant: tenantId }),
+    supabase.rpc('app_has_permission', { permission: 'employees.audit.read', tenant: tenantId }),
+    supabase.rpc('app_has_permission', { permission: 'employees.compensation.read', tenant: tenantId }),
+    supabase.rpc('app_has_permission', { permission: 'employees.compensation.write', tenant: tenantId }),
+    supabase.rpc('app_has_permission', { permission: 'employees.sensitive.read', tenant: tenantId }),
+    supabase.rpc('app_has_permission', { permission: 'employees.sensitive.write', tenant: tenantId }),
   ])
 
   if (fieldDefs.error) return c.json({ error: fieldDefs.error.message }, 400)
@@ -748,6 +786,11 @@ app.get('/api/employees/:tenantId/:id', async (c) => {
   if (canEdit.error) return c.json({ error: canEdit.error.message }, 400)
   if (canManageDocs.error) return c.json({ error: canManageDocs.error.message }, 400)
   if (canViewDocs.error) return c.json({ error: canViewDocs.error.message }, 400)
+  if (canViewAudit.error) return c.json({ error: canViewAudit.error.message }, 400)
+  if (canViewCompensation.error) return c.json({ error: canViewCompensation.error.message }, 400)
+  if (canEditCompensation.error) return c.json({ error: canEditCompensation.error.message }, 400)
+  if (canViewSensitive.error) return c.json({ error: canViewSensitive.error.message }, 400)
+  if (canEditSensitive.error) return c.json({ error: canEditSensitive.error.message }, 400)
 
   let documents: EmployeeDocument[] = []
   if (canViewDocs.data) {
@@ -765,6 +808,35 @@ app.get('/api/employees/:tenantId/:id', async (c) => {
     documents = parsedDocs.data
   }
 
+  // Fetch department information if employee has a department
+  let department = null
+  if (employee.data.department_id) {
+    const dept = await supabase
+      .from('departments')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('id', employee.data.department_id)
+      .maybeSingle()
+    if (dept.error) return c.json({ error: dept.error.message }, 400)
+    if (dept.data) {
+      department = DepartmentSchema.parse(dept.data)
+    }
+  }
+
+  // Fetch recent audit log entries if user has permission
+  let auditLog: any[] = []
+  if (canViewAudit.data) {
+    const audit = await supabase
+      .from('employee_audit_log')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    if (audit.error) return c.json({ error: audit.error.message }, 400)
+    auditLog = audit.data || []
+  }
+
   const managerOptions = (managerRows.data ?? []).map((row) => ({
     id: row.id,
     label: row.name?.length ? row.name : row.email,
@@ -777,9 +849,16 @@ app.get('/api/employees/:tenantId/:id', async (c) => {
     customFieldDefs: fieldDefs.data ?? [],
     documents,
     managerOptions: parsedManagers.data,
+    department,
+    auditLog: canViewAudit.data ? auditLog : undefined,
     permissions: {
       canEdit: Boolean(canEdit.data),
       canManageDocuments: Boolean(canManageDocs.data),
+      canViewAuditLog: Boolean(canViewAudit.data),
+      canViewCompensation: Boolean(canViewCompensation.data),
+      canEditCompensation: Boolean(canEditCompensation.data),
+      canViewSensitive: Boolean(canViewSensitive.data),
+      canEditSensitive: Boolean(canEditSensitive.data),
     },
   })
   if (!payload.success) return c.json({ error: 'Unexpected response shape' }, 500)
@@ -978,7 +1057,7 @@ app.get('/api/employees/:tenantId', async (c) => {
 
   let query = supabase
     .from('employees')
-    .select('id, tenant_id, email, name, manager_id, custom_fields, created_at', { count: 'exact' })
+    .select('*', { count: 'exact' })
     .eq('tenant_id', tenantId)
 
   if (search.length > 0) {
@@ -1059,7 +1138,22 @@ app.post('/api/employees/:tenantId', async (c) => {
   const ins = await supabase
     .from('employees')
     .insert(insertPayload)
+    .select()
+    .single()
   if (ins.error) return c.json({ error: ins.error.message }, 400)
+
+  // Log employee creation in audit trail
+  const user = c.get('user') as User
+  const { ipAddress, userAgent } = extractRequestInfo(c.req)
+  const auditLogger = new AuditLogger(supabase)
+  await auditLogger.logEmployeeCreation(
+    tenantId,
+    ins.data.id,
+    user.id,
+    insertPayload,
+    ipAddress,
+    userAgent
+  )
 
   return c.redirect(`/api/employees/${tenantId}`)
 })
@@ -1076,6 +1170,16 @@ app.put('/api/employees/:tenantId/:id', async (c) => {
   if (canWrite.error) return c.json({ error: canWrite.error.message }, 400)
   if (!canWrite.data) return c.json({ error: 'Forbidden' }, 403)
 
+  // Get current employee data for audit comparison
+  const currentEmployee = await supabase
+    .from('employees')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('id', id)
+    .maybeSingle()
+  if (currentEmployee.error) return c.json({ error: currentEmployee.error.message }, 400)
+  if (!currentEmployee.data) return c.json({ error: 'Employee not found' }, 404)
+
   // If custom_fields present, validate and coerce
   let updatePayload: Database['public']['Tables']['employees']['Update'] = { ...parsed.data }
   if ('custom_fields' in parsed.data) {
@@ -1088,7 +1192,28 @@ app.put('/api/employees/:tenantId/:id', async (c) => {
     .update(updatePayload)
     .eq('tenant_id', tenantId)
     .eq('id', id)
+    .select()
+    .single()
   if (upd.error) return c.json({ error: upd.error.message }, 400)
+
+  // Log employee update in audit trail
+  const user = c.get('user') as User
+  const { ipAddress, userAgent } = extractRequestInfo(c.req)
+  const auditLogger = new AuditLogger(supabase)
+  
+  // Find changes between old and new data
+  const changes = findChanges(currentEmployee.data, upd.data)
+  if (Object.keys(changes).length > 0) {
+    await auditLogger.logEmployeeUpdate(
+      tenantId,
+      id,
+      user.id,
+      changes,
+      undefined, // change reason - could be added to the API
+      ipAddress,
+      userAgent
+    )
+  }
 
   return c.redirect(`/api/employees/${tenantId}`)
 })
@@ -1110,6 +1235,617 @@ app.delete('/api/employees/:tenantId/:id', async (c) => {
   if (del.error) return c.json({ error: del.error.message }, 400)
 
   return c.redirect(`/api/employees/${tenantId}`)
+})
+
+// ---------------- Department endpoints ----------------
+
+// Get all departments for a tenant
+app.get('/api/departments/:tenantId', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+
+  const canRead = await supabase.rpc('app_has_permission', { permission: 'departments.read', tenant: tenantId })
+  if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+  if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+  const url = new URL(c.req.url)
+  const pageParam = Number.parseInt(url.searchParams.get('page') ?? '1', 10)
+  const rawPageSize = Number.parseInt(url.searchParams.get('pageSize') ?? '50', 10)
+  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1
+  const pageSize = Number.isFinite(rawPageSize) ? Math.min(Math.max(rawPageSize, 1), 100) : 50
+  const rangeStart = (page - 1) * pageSize
+  const rangeEnd = rangeStart + pageSize - 1
+
+  const departments = await supabase
+    .from('departments')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', tenantId)
+    .order('name', { ascending: true })
+    .range(rangeStart, rangeEnd)
+
+  if (departments.error) return c.json({ error: departments.error.message }, 400)
+
+  const response = DepartmentListResponseSchema.parse({
+    departments: departments.data || [],
+    pagination: {
+      page,
+      pageSize,
+      total: departments.count || 0,
+    },
+  })
+
+  return c.json(response)
+})
+
+// Get department hierarchy tree
+app.get('/api/departments/:tenantId/tree', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+
+  const canRead = await supabase.rpc('app_has_permission', { permission: 'departments.read', tenant: tenantId })
+  if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+  if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+  const hierarchy = await supabase
+    .from('department_hierarchy')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('level', { ascending: true })
+    .order('name', { ascending: true })
+
+  if (hierarchy.error) return c.json({ error: hierarchy.error.message }, 400)
+
+  const response = DepartmentHierarchyResponseSchema.parse({
+    departments: hierarchy.data || [],
+  })
+
+  return c.json(response)
+})
+
+// Get single department
+app.get('/api/departments/:tenantId/:id', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+  const departmentId = c.req.param('id')
+
+  const canRead = await supabase.rpc('app_has_permission', { permission: 'departments.read', tenant: tenantId })
+  if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+  if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+  const department = await supabase
+    .from('departments')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('id', departmentId)
+    .maybeSingle()
+
+  if (department.error) return c.json({ error: department.error.message }, 400)
+  if (!department.data) return c.json({ error: 'Department not found' }, 404)
+
+  return c.json(DepartmentSchema.parse(department.data))
+})
+
+// Create department
+app.post('/api/departments/:tenantId', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = DepartmentCreateInputSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+  if (parsed.data.tenant_id !== tenantId) return c.json({ error: 'tenant_id mismatch' }, 400)
+
+  const canManage = await supabase.rpc('app_has_permission', { permission: 'departments.manage', tenant: tenantId })
+  if (canManage.error) return c.json({ error: canManage.error.message }, 400)
+  if (!canManage.data) return c.json({ error: 'Forbidden' }, 403)
+
+  const department = await supabase
+    .from('departments')
+    .insert(parsed.data)
+    .select()
+    .single()
+
+  if (department.error) return c.json({ error: department.error.message }, 400)
+
+  return c.json(DepartmentSchema.parse(department.data))
+})
+
+// Update department
+app.put('/api/departments/:tenantId/:id', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+  const departmentId = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = DepartmentUpdateInputSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+
+  const canManage = await supabase.rpc('app_has_permission', { permission: 'departments.manage', tenant: tenantId })
+  if (canManage.error) return c.json({ error: canManage.error.message }, 400)
+  if (!canManage.data) return c.json({ error: 'Forbidden' }, 403)
+
+  const department = await supabase
+    .from('departments')
+    .update(parsed.data)
+    .eq('tenant_id', tenantId)
+    .eq('id', departmentId)
+    .select()
+    .single()
+
+  if (department.error) return c.json({ error: department.error.message }, 400)
+
+  return c.json(DepartmentSchema.parse(department.data))
+})
+
+// Delete department
+app.delete('/api/departments/:tenantId/:id', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+  const departmentId = c.req.param('id')
+
+  const canManage = await supabase.rpc('app_has_permission', { permission: 'departments.manage', tenant: tenantId })
+  if (canManage.error) return c.json({ error: canManage.error.message }, 400)
+  if (!canManage.data) return c.json({ error: 'Forbidden' }, 403)
+
+  // Check if department has employees
+  const employees = await supabase
+    .from('employees')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('department_id', departmentId)
+    .limit(1)
+
+  if (employees.error) return c.json({ error: employees.error.message }, 400)
+  if (employees.data && employees.data.length > 0) {
+    return c.json({ error: 'Cannot delete department with employees. Please reassign employees first.' }, 400)
+  }
+
+  // Check if department has child departments
+  const children = await supabase
+    .from('departments')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('parent_id', departmentId)
+    .limit(1)
+
+  if (children.error) return c.json({ error: children.error.message }, 400)
+  if (children.data && children.data.length > 0) {
+    return c.json({ error: 'Cannot delete department with child departments. Please delete or reassign child departments first.' }, 400)
+  }
+
+  const department = await supabase
+    .from('departments')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('id', departmentId)
+
+  if (department.error) return c.json({ error: department.error.message }, 400)
+
+  return c.json({ ok: true })
+})
+
+// ---------------- Employee Audit Log endpoints ----------------
+
+// Get employee audit log
+app.get('/api/employees/:tenantId/:employeeId/audit-log', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+  const employeeId = c.req.param('employeeId')
+
+  const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.audit.read', tenant: tenantId })
+  if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+  if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+  const url = new URL(c.req.url)
+  const pageParam = Number.parseInt(url.searchParams.get('page') ?? '1', 10)
+  const rawPageSize = Number.parseInt(url.searchParams.get('pageSize') ?? '20', 10)
+  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1
+  const pageSize = Number.isFinite(rawPageSize) ? Math.min(Math.max(rawPageSize, 1), 100) : 20
+  const rangeStart = (page - 1) * pageSize
+  const rangeEnd = rangeStart + pageSize - 1
+
+  const auditLog = await supabase
+    .from('employee_audit_log')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', tenantId)
+    .eq('employee_id', employeeId)
+    .order('created_at', { ascending: false })
+    .range(rangeStart, rangeEnd)
+
+  if (auditLog.error) return c.json({ error: auditLog.error.message }, 400)
+
+  const response = EmployeeAuditLogResponseSchema.parse({
+    auditLog: auditLog.data || [],
+    pagination: {
+      page,
+      pageSize,
+      total: auditLog.count || 0,
+    },
+  })
+
+  return c.json(response)
+})
+
+// Compare audit log entries
+app.get('/api/employees/:tenantId/:employeeId/audit-log/compare/:logId', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+  const employeeId = c.req.param('employeeId')
+  const logId = c.req.param('logId')
+
+  const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.audit.read', tenant: tenantId })
+  if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+  if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+  // Get the specific audit log entry
+  const auditEntry = await supabase
+    .from('employee_audit_log')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('employee_id', employeeId)
+    .eq('id', logId)
+    .maybeSingle()
+
+  if (auditEntry.error) return c.json({ error: auditEntry.error.message }, 400)
+  if (!auditEntry.data) return c.json({ error: 'Audit log entry not found' }, 404)
+
+  return c.json(EmployeeAuditLogSchema.parse(auditEntry.data))
+})
+
+// ---------------- CSV Import/Export endpoints ----------------
+
+// CSV Import Preview
+app.post('/api/employees/:tenantId/import/preview', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+
+  const canImport = await supabase.rpc('app_has_permission', { permission: 'employees.import', tenant: tenantId })
+  if (canImport.error) return c.json({ error: canImport.error.message }, 400)
+  if (!canImport.data) return c.json({ error: 'Forbidden' }, 403)
+
+  try {
+    const formData = await c.req.formData()
+    const file = formData.get('file') as File
+    if (!file) return c.json({ error: 'No file provided' }, 400)
+
+    const csvText = await file.text()
+    const lines = csvText.split('\n').filter(line => line.trim())
+    if (lines.length < 2) return c.json({ error: 'CSV must have at least a header and one data row' }, 400)
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+    const dataRows = lines.slice(1).map((line, index) => {
+      const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
+      const row: Record<string, string> = {}
+      headers.forEach((header, i) => {
+        row[header] = values[i] || ''
+      })
+      return { row: index + 2, data: row }
+    })
+
+    // Basic field mapping (can be enhanced)
+    const fieldMapping: Record<string, string> = {
+      'name': 'name',
+      'email': 'email',
+      'employee_number': 'employee_number',
+      'job_title': 'job_title',
+      'department': 'department_name',
+      'manager_email': 'manager_email',
+      'phone': 'phone_work',
+      'start_date': 'start_date',
+      'employment_type': 'employment_type',
+      'work_location': 'work_location',
+      'status': 'status'
+    }
+
+    const validRows: Record<string, any>[] = []
+    const invalidRows: Array<{ row: number; data: Record<string, any>; errors: string[] }> = []
+
+    for (const { row, data } of dataRows) {
+      const errors: string[] = []
+      
+      // Validate required fields
+      if (!data.name?.trim()) errors.push('Name is required')
+      if (!data.email?.trim()) errors.push('Email is required')
+      if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        errors.push('Invalid email format')
+      }
+
+      if (errors.length > 0) {
+        invalidRows.push({ row, data, errors })
+      } else {
+        validRows.push(data)
+      }
+    }
+
+    const response = CSVImportPreviewSchema.parse({
+      validRows,
+      invalidRows,
+      fieldMapping,
+      totalRows: dataRows.length
+    })
+
+    return c.json(response)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to process CSV file'
+    return c.json({ error: message }, 400)
+  }
+})
+
+// CSV Import Confirm
+app.post('/api/employees/:tenantId/import/confirm', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+
+  const canImport = await supabase.rpc('app_has_permission', { permission: 'employees.import', tenant: tenantId })
+  if (canImport.error) return c.json({ error: canImport.error.message }, 400)
+  if (!canImport.data) return c.json({ error: 'Forbidden' }, 403)
+
+  try {
+    const body = await c.req.json()
+    const parsed = CSVImportConfirmSchema.safeParse(body)
+    if (!parsed.success) return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+
+    const { validRows, fieldMapping } = parsed.data
+    const user = c.get('user') as User
+    const { ipAddress, userAgent } = extractRequestInfo(c.req)
+    const auditLogger = new AuditLogger(supabase)
+
+    let created = 0
+    let updated = 0
+    const errors: string[] = []
+    const warnings: string[] = []
+
+    for (const rowData of validRows) {
+      try {
+        // Map CSV data to employee fields
+        const employeeData: any = {
+          tenant_id: tenantId,
+          name: rowData.name?.trim(),
+          email: rowData.email?.trim(),
+          employee_number: rowData.employee_number?.trim() || null,
+          job_title: rowData.job_title?.trim() || null,
+          phone_work: rowData.phone?.trim() || null,
+          start_date: rowData.start_date?.trim() || null,
+          employment_type: rowData.employment_type?.trim() || null,
+          work_location: rowData.work_location?.trim() || null,
+          status: rowData.status?.trim() || 'active'
+        }
+
+        // Handle department lookup
+        if (rowData.department_name?.trim()) {
+          const dept = await supabase
+            .from('departments')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('name', rowData.department_name.trim())
+            .maybeSingle()
+          
+          if (dept.data) {
+            employeeData.department_id = dept.data.id
+          } else {
+            warnings.push(`Department "${rowData.department_name}" not found for employee ${rowData.name}`)
+          }
+        }
+
+        // Handle manager lookup
+        if (rowData.manager_email?.trim()) {
+          const manager = await supabase
+            .from('employees')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('email', rowData.manager_email.trim())
+            .maybeSingle()
+          
+          if (manager.data) {
+            employeeData.manager_id = manager.data.id
+          } else {
+            warnings.push(`Manager with email "${rowData.manager_email}" not found for employee ${rowData.name}`)
+          }
+        }
+
+        // Check if employee already exists
+        const existing = await supabase
+          .from('employees')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('email', employeeData.email)
+          .maybeSingle()
+
+        if (existing.data) {
+          // Update existing employee
+          const updateResult = await supabase
+            .from('employees')
+            .update(employeeData)
+            .eq('id', existing.data.id)
+            .select()
+            .single()
+
+          if (updateResult.error) {
+            errors.push(`Failed to update employee ${employeeData.name}: ${updateResult.error.message}`)
+            continue
+          }
+
+          // Log the update
+          await auditLogger.logEmployeeUpdate(
+            tenantId,
+            existing.data.id,
+            user.id,
+            employeeData,
+            ipAddress,
+            userAgent,
+            'Bulk import update'
+          )
+
+          updated++
+        } else {
+          // Create new employee
+          // First create user account
+          const invite = await supabaseAdmin.auth.admin.inviteUserByEmail(employeeData.email, {
+            data: { display_name: employeeData.name },
+          })
+          if (invite.error) {
+            errors.push(`Failed to create user account for ${employeeData.name}: ${invite.error.message}`)
+            continue
+          }
+          const newUserId = invite.data.user?.id
+          if (!newUserId) {
+            errors.push(`User creation failed for ${employeeData.name}: missing user ID`)
+            continue
+          }
+
+          // Add membership
+          const memberIns = await supabaseAdmin
+            .from('memberships')
+            .insert({ user_id: newUserId, tenant_id: tenantId, role: 'employee' })
+          if (memberIns.error) {
+            errors.push(`Failed to add membership for ${employeeData.name}: ${memberIns.error.message}`)
+            continue
+          }
+
+          // Create profile
+          const profileIns = await supabaseAdmin
+            .from('profiles')
+            .insert({ user_id: newUserId, tenant_id: tenantId, display_name: employeeData.name })
+          if (profileIns.error) {
+            errors.push(`Failed to create profile for ${employeeData.name}: ${profileIns.error.message}`)
+            continue
+          }
+
+          // Create employee record
+          const createResult = await supabase
+            .from('employees')
+            .insert(employeeData)
+            .select()
+            .single()
+
+          if (createResult.error) {
+            errors.push(`Failed to create employee ${employeeData.name}: ${createResult.error.message}`)
+            continue
+          }
+
+          // Log the creation
+          await auditLogger.logEmployeeCreation(
+            tenantId,
+            createResult.data.id,
+            user.id,
+            employeeData,
+            ipAddress,
+            userAgent
+          )
+
+          created++
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        errors.push(`Error processing employee ${rowData.name}: ${message}`)
+      }
+    }
+
+    const response = CSVImportResultSchema.parse({
+      success: errors.length === 0,
+      created,
+      updated,
+      errors,
+      warnings
+    })
+
+    return c.json(response)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to process import'
+    return c.json({ error: message }, 400)
+  }
+})
+
+// CSV Export
+app.get('/api/employees/:tenantId/export', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+  const tenantId = c.req.param('tenantId')
+
+  const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.read', tenant: tenantId })
+  if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+  if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+  try {
+    const url = new URL(c.req.url)
+    const departmentId = url.searchParams.get('departmentId')
+    const status = url.searchParams.get('status')
+    const includeSensitive = url.searchParams.get('includeSensitive') === 'true'
+    const format = url.searchParams.get('format') || 'csv'
+
+    // Build query
+    let query = supabase
+      .from('employees')
+      .select(`
+        *,
+        departments(name),
+        manager:employees!manager_id(name, email)
+      `)
+      .eq('tenant_id', tenantId)
+
+    if (departmentId) query = query.eq('department_id', departmentId)
+    if (status) query = query.eq('status', status)
+
+    const { data: employees, error } = await query
+
+    if (error) return c.json({ error: error.message }, 400)
+
+    // Generate CSV
+    const headers = [
+      'name',
+      'email',
+      'employee_number',
+      'job_title',
+      'department',
+      'manager_name',
+      'manager_email',
+      'phone_work',
+      'start_date',
+      'employment_type',
+      'work_location',
+      'status',
+      'created_at'
+    ]
+
+    if (includeSensitive) {
+      headers.push('salary_amount', 'salary_currency', 'salary_frequency')
+    }
+
+    const csvRows = employees?.map(emp => [
+      emp.name || '',
+      emp.email || '',
+      emp.employee_number || '',
+      emp.job_title || '',
+      (emp.departments as any)?.name || '',
+      (emp.manager as any)?.name || '',
+      (emp.manager as any)?.email || '',
+      emp.phone_work || '',
+      emp.start_date || '',
+      emp.employment_type || '',
+      emp.work_location || '',
+      emp.status || '',
+      emp.created_at || '',
+      ...(includeSensitive ? [
+        emp.salary_amount || '',
+        emp.salary_currency || '',
+        emp.salary_frequency || ''
+      ] : [])
+    ]) || []
+
+    const csvContent = [
+      headers.join(','),
+      ...csvRows.map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+
+    const filename = `employees_export_${new Date().toISOString().split('T')[0]}.csv`
+
+    return new Response(csvContent, {
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="${filename}"`
+      }
+    })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to export employees'
+    return c.json({ error: message }, 400)
+  }
 })
 
 // ---------------- Workflows endpoints ----------------
@@ -2220,7 +2956,7 @@ async function getEmployeeForUser(
 
   const res = await supabase
     .from('employees')
-    .select('id, tenant_id, name, email, manager_id, created_at, custom_fields')
+    .select('*')
     .eq('tenant_id', tenantId)
     .eq('email', email)
     .maybeSingle()
@@ -2237,7 +2973,7 @@ async function getEmployeeById(
 ): Promise<EmployeeRow | null> {
   const res = await supabase
     .from('employees')
-    .select('id, tenant_id, name, email, manager_id, created_at, custom_fields')
+    .select('*')
     .eq('id', employeeId)
     .maybeSingle()
   if (res.error && res.error.code !== 'PGRST116') {
@@ -2509,6 +3245,218 @@ function endOfWeekUtc(d: Date): Date {
 
 function clampNonNegative(n: number): number { return n < 0 ? 0 : n }
 
+// ==============================================
+// Time Management Helper Functions
+// ==============================================
+
+// Check if time entry requires approval
+async function requiresApproval(
+  entryDate: Date,
+  entryType: 'clock' | 'manual',
+  userId: string,
+  supabase: SupabaseClient<Database>
+): Promise<boolean> {
+  // Manual entries for past dates require approval
+  if (entryType === 'manual' && entryDate < new Date()) {
+    return true;
+  }
+  
+  // Future: Add more complex rules here (e.g., based on employee role, location, etc.)
+  return false;
+}
+
+// Check for overlapping time entries
+async function checkTimeEntryOverlap(
+  userId: string,
+  tenantId: string,
+  startTime: Date,
+  endTime: Date,
+  supabase: SupabaseClient<Database>,
+  excludeId?: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('time_entries')
+    .select('id, clock_in_at, clock_out_at')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+    .neq('approval_status', 'rejected')
+    .not('id', 'eq', excludeId || '');
+
+  if (error) throw error;
+
+  return (data || []).some(entry => {
+    const entryStart = new Date(entry.clock_in_at);
+    const entryEnd = entry.clock_out_at ? new Date(entry.clock_out_at) : new Date();
+    
+    // Check for overlap
+    return (
+      // New entry starts during existing entry
+      (startTime >= entryStart && startTime < entryEnd) ||
+      // New entry ends during existing entry
+      (endTime > entryStart && endTime <= entryEnd) ||
+      // New entry completely contains existing entry
+      (startTime <= entryStart && endTime >= entryEnd)
+    );
+  });
+}
+
+// Create audit log entry
+async function createAuditLog(
+  timeEntryId: string,
+  changedBy: string,
+  fieldName: string,
+  oldValue: any,
+  newValue: any,
+  supabase: SupabaseClient<Database>,
+  changeReason?: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('time_entry_audit')
+    .insert({
+      time_entry_id: timeEntryId,
+      changed_by: changedBy,
+      field_name: fieldName,
+      old_value: oldValue,
+      new_value: newValue,
+      change_reason: changeReason,
+    });
+
+  if (error) throw error;
+}
+
+// Calculate overtime for a period
+async function calculateOvertimeForPeriod(
+  userId: string,
+  tenantId: string,
+  startDate: Date,
+  endDate: Date,
+  supabase: SupabaseClient<Database>
+): Promise<{ regularHours: number; overtimeHours: number }> {
+  // Get overtime rules for tenant
+  const { data: rules, error: rulesError } = await supabase
+    .from('overtime_rules')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('is_default', true)
+    .single();
+
+  if (rulesError) throw rulesError;
+  if (!rules) throw new Error('No overtime rules found for tenant');
+
+  // Get approved time entries for period
+  const { data: entries, error: entriesError } = await supabase
+    .from('time_entries')
+    .select('clock_in_at, clock_out_at, break_minutes')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+    .eq('approval_status', 'approved')
+    .gte('clock_in_at', startDate.toISOString())
+    .lt('clock_in_at', endDate.toISOString())
+    .not('clock_out_at', 'is', null);
+
+  if (entriesError) throw entriesError;
+
+  let totalRegularHours = 0;
+  let totalOvertimeHours = 0;
+
+  // Group entries by day
+  const dailyHours: { [date: string]: number } = {};
+  
+  for (const entry of entries || []) {
+    const clockIn = new Date(entry.clock_in_at);
+    const clockOut = new Date(entry.clock_out_at!);
+    const breakMinutes = entry.break_minutes || 0;
+    
+    // Calculate net hours (duration minus breaks)
+    const totalMinutes = Math.max(0, clockOut.getTime() - clockIn.getTime()) / (1000 * 60);
+    const netMinutes = Math.max(0, totalMinutes - breakMinutes);
+    const netHours = netMinutes / 60;
+    
+    const dateKey = clockIn.toISOString().split('T')[0];
+    dailyHours[dateKey] = (dailyHours[dateKey] || 0) + netHours;
+  }
+
+  // Apply daily overtime rules
+  for (const [date, hours] of Object.entries(dailyHours)) {
+    if (hours > rules.daily_threshold) {
+      const dailyOvertime = hours - rules.daily_threshold;
+      totalOvertimeHours += dailyOvertime;
+      totalRegularHours += rules.daily_threshold;
+    } else {
+      totalRegularHours += hours;
+    }
+  }
+
+  // Apply weekly overtime rules
+  const totalHours = totalRegularHours + totalOvertimeHours;
+  if (totalHours > rules.weekly_threshold) {
+    const weeklyOvertime = totalHours - rules.weekly_threshold;
+    // Move some hours from regular to overtime
+    const moveToOvertime = Math.min(weeklyOvertime, totalRegularHours);
+    totalRegularHours -= moveToOvertime;
+    totalOvertimeHours += moveToOvertime;
+  }
+
+  return {
+    regularHours: Math.round(totalRegularHours * 100) / 100,
+    overtimeHours: Math.round(totalOvertimeHours * 100) / 100,
+  };
+}
+
+// Get or create overtime balance for period
+async function getOrCreateOvertimeBalance(
+  userId: string,
+  tenantId: string,
+  period: string,
+  supabase: SupabaseClient<Database>
+): Promise<any> {
+  // Try to get existing balance
+  const { data: existing, error: fetchError } = await supabase
+    .from('overtime_balances')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+    .eq('period', period)
+    .single();
+
+  if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+
+  if (existing) return existing;
+
+  // Create new balance
+  const { data: newBalance, error: createError } = await supabase
+    .from('overtime_balances')
+    .insert({
+      user_id: userId,
+      tenant_id: tenantId,
+      period,
+      regular_hours: 0,
+      overtime_hours: 0,
+      overtime_multiplier: 1.5,
+      carry_over_hours: 0,
+    })
+    .select()
+    .single();
+
+  if (createError) throw createError;
+  return newBalance;
+}
+
+// Format time for display
+function formatTimeDisplay(minutes: number | null): string {
+  if (minutes === null) return '—';
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${mins.toString().padStart(2, '0')}m`;
+}
+
+// Parse ISO date string safely
+function parseIsoDate(dateString: string | null | undefined): Date | null {
+  if (!dateString) return null;
+  const date = new Date(dateString);
+  return isNaN(date.getTime()) ? null : date;
+}
+
 // ---------------- Time Management Endpoints ----------------
 
 // Summary for "My Time" widget
@@ -2771,7 +3719,7 @@ app.put('/api/time-off/requests/:id/approve', async (c) => {
   return c.json(upd.data)
 })
 
-// Team calendar
+// Enhanced team calendar with filtering and export
 app.get('/api/calendar', async (c) => {
   const supabase = c.get('supabase') as SupabaseClient<Database>
 
@@ -2791,67 +3739,1142 @@ app.get('/api/calendar', async (c) => {
   }
 
   const url = new URL(c.req.url)
-  const startIso = url.searchParams.get('start')
-  const endIso = url.searchParams.get('end')
+  const query = {
+    start: url.searchParams.get('start') || undefined,
+    end: url.searchParams.get('end') || undefined,
+    user_ids: url.searchParams.getAll('user_ids[]'),
+    status: url.searchParams.get('status') || undefined,
+    department_id: url.searchParams.get('department_id') || undefined,
+    include_breaks: url.searchParams.get('include_breaks') === 'true',
+    format: url.searchParams.get('format') || 'json',
+  }
 
-  const start = parseIso(startIso ?? undefined)
-  const end = parseIso(endIso ?? undefined)
-  if (!start || !end || end <= start) {
+  const parsed = ManagerCalendarFilterSchema.safeParse(query)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid query parameters', details: parsed.error.issues }, 400)
+  }
+
+  const { start, end, user_ids, status, department_id, include_breaks, format } = parsed.data
+
+  const startDate = parseIso(start)
+  const endDate = parseIso(end)
+  if (!startDate || !endDate || endDate <= startDate) {
     return c.json({ error: 'Invalid start/end range' }, 400)
   }
 
-  // Approved time off overlapping range
-  const off = await supabase
+  // Get team members based on filters
+  let teamQuery = supabase
+    .from('employees')
+    .select('id, user_id, name, email, employee_number, department_id, status')
+    .eq('tenant_id', tenantId)
+
+  if (user_ids && user_ids.length > 0) {
+    teamQuery = teamQuery.in('user_id', user_ids)
+  }
+
+  if (department_id) {
+    teamQuery = teamQuery.eq('department_id', department_id)
+  }
+
+  const { data: teamMembers, error: teamError } = await teamQuery
+  if (teamError) return c.json({ error: teamError.message }, 400)
+
+  const teamUserIds = (teamMembers || []).map(m => m.user_id)
+
+  // Get approved time off overlapping range
+  let timeOffQuery = supabase
     .from('time_off_requests')
     .select('id, user_id, start_date, end_date, leave_type, status')
     .eq('tenant_id', tenantId)
     .eq('status', 'approved')
-    .lte('start_date', end.toISOString())
-    .gte('end_date', start.toISOString())
+    .lte('start_date', endDate.toISOString())
+    .gte('end_date', startDate.toISOString())
 
-  if (off.error) return c.json({ error: off.error.message }, 400)
+  if (teamUserIds.length > 0) {
+    const validUserIds = teamUserIds.filter((id): id is string => id !== null)
+    if (validUserIds.length > 0) {
+      timeOffQuery = timeOffQuery.in('user_id', validUserIds)
+    }
+  }
 
-  // Time entries overlapping range
-  const entries = await supabase
+  const { data: timeOff, error: timeOffError } = await timeOffQuery
+  if (timeOffError) return c.json({ error: timeOffError.message }, 400)
+
+  // Get time entries overlapping range with enhanced data
+  let timeEntriesQuery = supabase
     .from('time_entries')
-    .select('id, user_id, clock_in_at, clock_out_at')
+    .select(`
+      id, user_id, clock_in_at, clock_out_at, break_minutes, 
+      project_task, notes, entry_type, approval_status
+    `)
     .eq('tenant_id', tenantId)
-    .lt('clock_in_at', end.toISOString())
-    .or(`clock_out_at.is.null,clock_out_at.gte.${start.toISOString()}`)
+    .lt('clock_in_at', endDate.toISOString())
+    .or(`clock_out_at.is.null,clock_out_at.gte.${startDate.toISOString()}`)
 
-  if (entries.error) return c.json({ error: entries.error.message }, 400)
+  if (teamUserIds.length > 0) {
+    const validUserIds = teamUserIds.filter((id): id is string => id !== null)
+    if (validUserIds.length > 0) {
+      timeEntriesQuery = timeEntriesQuery.in('user_id', validUserIds)
+    }
+  }
 
+  const { data: timeEntries, error: timeEntriesError } = await timeEntriesQuery
+  if (timeEntriesError) return c.json({ error: timeEntriesError.message }, 400)
+
+  // Create employee lookup map
+  const employeeMap = new Map((teamMembers || []).map(emp => [emp.user_id, emp]))
+
+  // Build events array
   const events = [
-    ...((off.data ?? []).map((r) => {
+    ...((timeOff || []).map((r) => {
       const evStart = new Date(r.start_date)
       evStart.setUTCHours(0, 0, 0, 0)
       const evEnd = new Date(r.end_date)
       evEnd.setUTCHours(0, 0, 0, 0)
       evEnd.setUTCDate(evEnd.getUTCDate() + 1) // make inclusive
+      const employee = employeeMap.get(r.user_id)
       return {
         id: `off_${r.id}`,
-        title: 'Time Off',
+        title: `Time Off - ${employee?.name || 'Unknown'}`,
         start: evStart.toISOString(),
         end: evEnd.toISOString(),
         kind: 'time_off' as const,
         userId: r.user_id,
         leaveType: r.leave_type as any,
+        employeeName: employee?.name,
+        employeeEmail: employee?.email,
+        employeeNumber: employee?.employee_number,
       }
     })),
-    ...((entries.data ?? []).map((e) => ({
+    ...((timeEntries || []).map((e) => {
+      const employee = employeeMap.get(e.user_id)
+      const duration = e.clock_out_at ? 
+        Math.max(0, new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / (1000 * 60) : 0
+      const netDuration = Math.max(0, duration - (e.break_minutes || 0))
+      
+      return {
       id: `te_${e.id}`,
-      title: 'Worked Time',
+        title: `Worked Time - ${employee?.name || 'Unknown'}`,
       start: e.clock_in_at,
       end: e.clock_out_at ?? e.clock_in_at,
       kind: 'time_entry' as const,
       userId: e.user_id,
-    }))),
+        employeeName: employee?.name,
+        employeeEmail: employee?.email,
+        employeeNumber: employee?.employee_number,
+        duration: Math.round(duration),
+        netDuration: Math.round(netDuration),
+        breakMinutes: e.break_minutes || 0,
+        projectTask: e.project_task,
+        notes: e.notes,
+        entryType: e.entry_type,
+        approvalStatus: e.approval_status,
+      }
+    })),
   ]
 
-  const parsed = CalendarResponseSchema.safeParse({ events })
-  if (!parsed.success) return c.json({ error: 'Unexpected response shape' }, 500)
+  // Apply status filter
+  let filteredEvents = events
+  if (status && status !== 'all') {
+    filteredEvents = events.filter(event => {
+      if (event.kind === 'time_off') return true // Time off is always "on-leave"
+      if (event.kind === 'time_entry') {
+        switch (status) {
+          case 'clocked-in':
+            return !event.end || event.end === event.start
+          case 'not-clocked-in':
+            return false // This would need additional logic to show who hasn't clocked in
+          case 'on-leave':
+            return false // Time off entries are handled separately
+          case 'absent':
+            return false // This would need additional logic
+          default:
+            return true
+        }
+      }
+      return true
+    })
+  }
+
+  // Handle CSV export
+  if (format === 'csv') {
+    const csvHeaders = [
+      'Date',
+      'Employee Name',
+      'Employee Email',
+      'Employee Number',
+      'Type',
+      'Start Time',
+      'End Time',
+      'Duration (minutes)',
+      'Net Duration (minutes)',
+      'Break (minutes)',
+      'Project/Task',
+      'Notes',
+      'Status'
+    ]
+
+    const csvRows = filteredEvents.map(event => {
+      const startDate = new Date(event.start)
+      const endDate = new Date(event.end)
+      
+      return [
+        startDate.toISOString().split('T')[0],
+        event.employeeName || '',
+        event.employeeEmail || '',
+        event.employeeNumber || '',
+        event.kind === 'time_off' ? 'Time Off' : 'Work Time',
+        startDate.toISOString(),
+        endDate.toISOString(),
+        event.kind === 'time_entry' ? (event.duration || 0) : 0,
+        event.kind === 'time_entry' ? (event.netDuration || 0) : 0,
+        event.kind === 'time_entry' ? (event.breakMinutes || 0) : 0,
+        event.kind === 'time_entry' ? (event.projectTask || '') : '',
+        event.kind === 'time_entry' ? (event.notes || '') : '',
+        event.kind === 'time_entry' ? (event.approvalStatus || '') : (event.kind === 'time_off' ? 'approved' : '')
+      ]
+    })
+
+    const csvContent = [csvHeaders, ...csvRows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    c.header('Content-Type', 'text/csv')
+    c.header('Content-Disposition', `attachment; filename="team-calendar-${startDate.toISOString().split('T')[0]}-to-${endDate.toISOString().split('T')[0]}.csv"`)
+    return c.text(csvContent)
+  }
+
+  // Return JSON response
+  const calendarParsed = CalendarResponseSchema.safeParse({ events: filteredEvents })
+  if (!calendarParsed.success) return c.json({ error: 'Unexpected response shape' }, 500)
+  return c.json(calendarParsed.data)
+})
+
+// Time export endpoint for detailed reports
+app.get('/api/time/export', async (c) => {
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  try {
+    await ensurePermission(supabase, tenantId, 'time.view_team')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Forbidden'
+    return c.json({ error: message }, 403)
+  }
+
+  const url = new URL(c.req.url)
+  const query = {
+    format: url.searchParams.get('format') || 'csv',
+    start_date: url.searchParams.get('start_date') || undefined,
+    end_date: url.searchParams.get('end_date') || undefined,
+    user_ids: url.searchParams.getAll('user_ids[]'),
+    include_breaks: url.searchParams.get('include_breaks') === 'true',
+    include_notes: url.searchParams.get('include_notes') === 'true',
+  }
+
+  const parsed = TimeExportRequestSchema.safeParse(query)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid query parameters', details: parsed.error.issues }, 400)
+  }
+
+  const { format, start_date, end_date, user_ids, include_breaks, include_notes } = parsed.data
+
+  const startDate = parseIso(start_date)
+  const endDate = parseIso(end_date)
+  if (!startDate || !endDate || endDate <= startDate) {
+    return c.json({ error: 'Invalid start/end range' }, 400)
+  }
+
+  // Get time entries
+  let timeEntriesQuery = supabase
+    .from('time_entries')
+    .select(`
+      id, user_id, clock_in_at, clock_out_at, break_minutes, 
+      project_task, notes, entry_type, approval_status, created_at
+    `)
+    .eq('tenant_id', tenantId)
+    .gte('clock_in_at', startDate.toISOString())
+    .lte('clock_in_at', endDate.toISOString())
+
+  if (user_ids && user_ids.length > 0) {
+    timeEntriesQuery = timeEntriesQuery.in('user_id', user_ids)
+  }
+
+  const { data: timeEntries, error: timeEntriesError } = await timeEntriesQuery
+  if (timeEntriesError) return c.json({ error: timeEntriesError.message }, 400)
+
+  // Get employee data
+  const userIds = [...new Set((timeEntries || []).map(e => e.user_id))]
+  const { data: employees, error: employeesError } = await supabase
+    .from('employees')
+    .select('user_id, name, email, employee_number, department_id')
+    .in('user_id', userIds)
+
+  if (employeesError) return c.json({ error: employeesError.message }, 400)
+
+  const employeeMap = new Map((employees || []).map(emp => [emp.user_id, emp]))
+
+  // Build CSV
+  const csvHeaders = [
+    'Date',
+    'Employee Name',
+    'Employee Email',
+    'Employee Number',
+    'Clock In',
+    'Clock Out',
+    'Duration (hours)',
+    'Break (minutes)',
+    'Net Duration (hours)',
+    'Project/Task',
+    'Entry Type',
+    'Status'
+  ]
+
+  if (include_notes) {
+    csvHeaders.push('Notes')
+  }
+
+  const csvRows = (timeEntries || []).map(entry => {
+    const employee = employeeMap.get(entry.user_id)
+    const clockIn = new Date(entry.clock_in_at)
+    const clockOut = entry.clock_out_at ? new Date(entry.clock_out_at) : null
+    const duration = clockOut ? 
+      Math.max(0, clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60) : 0
+    const netDuration = Math.max(0, duration - (entry.break_minutes || 0) / 60)
+    
+    const row = [
+      clockIn.toISOString().split('T')[0],
+      employee?.name || '',
+      employee?.email || '',
+      employee?.employee_number || '',
+      clockIn.toISOString(),
+      clockOut?.toISOString() || '',
+      duration.toFixed(2),
+      entry.break_minutes || 0,
+      netDuration.toFixed(2),
+      entry.project_task || '',
+      entry.entry_type,
+      entry.approval_status
+    ]
+
+    if (include_notes) {
+      row.push(entry.notes || '')
+    }
+
+    return row
+  })
+
+  const csvContent = [csvHeaders, ...csvRows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+
+  c.header('Content-Type', 'text/csv')
+  c.header('Content-Disposition', `attachment; filename="time-export-${startDate.toISOString().split('T')[0]}-to-${endDate.toISOString().split('T')[0]}.csv"`)
+  return c.text(csvContent)
+})
+
+// ==============================================
+// Manual Time Entry Endpoints
+// ==============================================
+
+// Create manual time entry
+app.post('/api/time/entries', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  const body = await c.req.json()
+  const parsed = ManualTimeEntryInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.issues }, 400)
+  }
+
+  const { date, start_time, end_time, break_minutes, project_task, notes } = parsed.data
+
+  // Combine date and time
+  const clockInAt = new Date(`${date}T${start_time}`)
+  const clockOutAt = new Date(`${date}T${end_time}`)
+
+  // Validate times
+  if (clockOutAt <= clockInAt) {
+    return c.json({ error: 'End time must be after start time' }, 400)
+  }
+
+  // Check for overlaps
+  const hasOverlap = await checkTimeEntryOverlap(
+    user.id,
+    tenantId,
+    clockInAt,
+    clockOutAt,
+    supabase
+  )
+
+  if (hasOverlap) {
+    return c.json({ error: 'Time entry overlaps with existing entry' }, 409)
+  }
+
+  // Check if approval is required
+  const needsApproval = await requiresApproval(
+    new Date(date),
+    'manual',
+    user.id,
+    supabase
+  )
+
+  const approvalStatus = needsApproval ? 'pending' : 'approved'
+  const approverUserId = needsApproval ? null : user.id
+  const approvedAt = needsApproval ? null : new Date().toISOString()
+
+  // Create time entry
+  const { data: entry, error } = await supabase
+    .from('time_entries')
+    .insert({
+      tenant_id: tenantId,
+      user_id: user.id,
+      clock_in_at: clockInAt.toISOString(),
+      clock_out_at: clockOutAt.toISOString(),
+      break_minutes: break_minutes || 0,
+      project_task: project_task || null,
+      notes: notes || null,
+      entry_type: 'manual',
+      approval_status: approvalStatus,
+      approver_user_id: approverUserId,
+      approved_at: approvedAt,
+    })
+    .select('*')
+    .single()
+
+  if (error) return c.json({ error: error.message }, 400)
+
+  return c.json(entry)
+})
+
+// List time entries with filters
+app.get('/api/time/entries', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  const url = new URL(c.req.url)
+  const query = {
+    user_id: url.searchParams.get('user_id') || undefined,
+    start_date: url.searchParams.get('start_date') || undefined,
+    end_date: url.searchParams.get('end_date') || undefined,
+    status: url.searchParams.get('status') || undefined,
+    entry_type: url.searchParams.get('entry_type') || undefined,
+    project_task: url.searchParams.get('project_task') || undefined,
+    page: parseInt(url.searchParams.get('page') || '1'),
+    page_size: parseInt(url.searchParams.get('page_size') || '20'),
+  }
+
+  const parsed = TimeEntryListQuerySchema.safeParse(query)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid query parameters', details: parsed.error.issues }, 400)
+  }
+
+  const { user_id, start_date, end_date, status, entry_type, project_task, page, page_size } = parsed.data
+
+  // Build query
+  let queryBuilder = supabase
+    .from('time_entries')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', tenantId)
+
+  // Apply filters
+  if (user_id) {
+    // Check if user can view other users' entries
+    if (user_id !== user.id) {
+      try {
+        await ensurePermission(supabase, tenantId, 'time.view_team')
+      } catch {
+        return c.json({ error: 'Forbidden' }, 403)
+      }
+    }
+    queryBuilder = queryBuilder.eq('user_id', user_id)
+  } else {
+    // Default to current user's entries
+    queryBuilder = queryBuilder.eq('user_id', user.id)
+  }
+
+  if (start_date) {
+    queryBuilder = queryBuilder.gte('clock_in_at', start_date)
+  }
+  if (end_date) {
+    queryBuilder = queryBuilder.lte('clock_in_at', end_date)
+  }
+  if (status) {
+    queryBuilder = queryBuilder.eq('approval_status', status)
+  }
+  if (entry_type) {
+    queryBuilder = queryBuilder.eq('entry_type', entry_type)
+  }
+  if (project_task) {
+    queryBuilder = queryBuilder.ilike('project_task', `%${project_task}%`)
+  }
+
+  // Apply pagination
+  const from = (page - 1) * page_size
+  const to = from + page_size - 1
+  queryBuilder = queryBuilder.range(from, to).order('clock_in_at', { ascending: false })
+
+  const { data: entries, error, count } = await queryBuilder
+
+  if (error) return c.json({ error: error.message }, 400)
+
+  const totalPages = Math.ceil((count || 0) / page_size)
+
+  const response = {
+    entries: entries || [],
+    pagination: {
+      page,
+      page_size,
+      total: count || 0,
+      total_pages: totalPages,
+    },
+  }
+
+  const parsedResponse = TimeEntryListResponseSchema.safeParse(response)
+  if (!parsedResponse.success) {
+    return c.json({ error: 'Unexpected response shape' }, 500)
+  }
+
+  return c.json(parsedResponse.data)
+})
+
+// Update time entry
+app.put('/api/time/entries/:id', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  const entryId = c.req.param('id')
+  const body = await c.req.json()
+  const parsed = TimeEntryUpdateInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.issues }, 400)
+  }
+
+  // Get existing entry
+  const { data: existing, error: fetchError } = await supabase
+    .from('time_entries')
+    .select('*')
+    .eq('id', entryId)
+    .eq('tenant_id', tenantId)
+    .single()
+
+  if (fetchError) return c.json({ error: fetchError.message }, 400)
+  if (!existing) return c.json({ error: 'Time entry not found' }, 404)
+
+  // Check permissions
+  if (existing.user_id !== user.id) {
+    try {
+      await ensurePermission(supabase, tenantId, 'time.view_team')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+  }
+
+  // Check if editing past entries requires special permission
+  const entryDate = new Date(existing.clock_in_at)
+  if (entryDate < new Date() && existing.entry_type === 'manual') {
+    try {
+      await ensurePermission(supabase, tenantId, 'time.edit_past')
+    } catch {
+      return c.json({ error: 'Editing past manual entries requires special permission' }, 403)
+    }
+  }
+
+  const { start_time, end_time, break_minutes, project_task, notes, change_reason } = parsed.data
+
+  // Build update object
+  const updates: any = {}
+  const changes: Array<{ field: string; old: any; new: any }> = []
+
+  if (start_time !== undefined) {
+    const newClockIn = new Date(`${entryDate.toISOString().split('T')[0]}T${start_time}`)
+    updates.clock_in_at = newClockIn.toISOString()
+    changes.push({ field: 'clock_in_at', old: existing.clock_in_at, new: updates.clock_in_at })
+  }
+
+  if (end_time !== undefined) {
+    const newClockOut = new Date(`${entryDate.toISOString().split('T')[0]}T${end_time}`)
+    updates.clock_out_at = newClockOut.toISOString()
+    changes.push({ field: 'clock_out_at', old: existing.clock_out_at, new: updates.clock_out_at })
+  }
+
+  if (break_minutes !== undefined) {
+    updates.break_minutes = break_minutes
+    changes.push({ field: 'break_minutes', old: existing.break_minutes, new: break_minutes })
+  }
+
+  if (project_task !== undefined) {
+    updates.project_task = project_task
+    changes.push({ field: 'project_task', old: existing.project_task, new: project_task })
+  }
+
+  if (notes !== undefined) {
+    updates.notes = notes
+    changes.push({ field: 'notes', old: existing.notes, new: notes })
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return c.json({ error: 'No changes provided' }, 400)
+  }
+
+  // Validate new times if both are provided
+  if (updates.clock_in_at && updates.clock_out_at) {
+    const newClockIn = new Date(updates.clock_in_at)
+    const newClockOut = new Date(updates.clock_out_at)
+    if (newClockOut <= newClockIn) {
+      return c.json({ error: 'End time must be after start time' }, 400)
+    }
+  }
+
+  // Check for overlaps with new times
+  const finalClockIn = updates.clock_in_at ? new Date(updates.clock_in_at) : new Date(existing.clock_in_at)
+  const finalClockOut = updates.clock_out_at ? new Date(updates.clock_out_at) : new Date(existing.clock_out_at || existing.clock_in_at)
+
+  const hasOverlap = await checkTimeEntryOverlap(
+    existing.user_id,
+    tenantId,
+    finalClockIn,
+    finalClockOut,
+    supabase,
+    entryId
+  )
+
+  if (hasOverlap) {
+    return c.json({ error: 'Time entry overlaps with existing entry' }, 409)
+  }
+
+  // Update entry
+  updates.edited_by = user.id
+  updates.updated_at = new Date().toISOString()
+
+  const { data: updated, error: updateError } = await supabase
+    .from('time_entries')
+    .update(updates)
+    .eq('id', entryId)
+    .select('*')
+    .single()
+
+  if (updateError) return c.json({ error: updateError.message }, 400)
+
+  // Create audit log entries
+  for (const change of changes) {
+    await createAuditLog(
+      entryId,
+      user.id,
+      change.field,
+      change.old,
+      change.new,
+      change_reason,
+      supabase
+    )
+  }
+
+  return c.json(updated)
+})
+
+// Delete time entry
+app.delete('/api/time/entries/:id', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  const entryId = c.req.param('id')
+
+  // Get existing entry
+  const { data: existing, error: fetchError } = await supabase
+    .from('time_entries')
+    .select('*')
+    .eq('id', entryId)
+    .eq('tenant_id', tenantId)
+    .single()
+
+  if (fetchError) return c.json({ error: fetchError.message }, 400)
+  if (!existing) return c.json({ error: 'Time entry not found' }, 404)
+
+  // Check permissions
+  if (existing.user_id !== user.id) {
+    try {
+      await ensurePermission(supabase, tenantId, 'time.view_team')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+  }
+
+  // Soft delete by setting approval_status to 'rejected'
+  const { error: updateError } = await supabase
+    .from('time_entries')
+    .update({
+      approval_status: 'rejected',
+      edited_by: user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', entryId)
+
+  if (updateError) return c.json({ error: updateError.message }, 400)
+
+  // Create audit log
+  await createAuditLog(
+    entryId,
+    user.id,
+    'approval_status',
+    existing.approval_status,
+    'rejected',
+    'Entry deleted',
+    supabase
+  )
+
+  return c.json({ success: true })
+})
+
+// ==============================================
+// Approval Workflow Endpoints
+// ==============================================
+
+// Get pending approvals for manager's team
+app.get('/api/time/entries/pending', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  try {
+    await ensurePermission(supabase, tenantId, 'time.approve')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Forbidden'
+    return c.json({ error: message }, 403)
+  }
+
+  const url = new URL(c.req.url)
+  const page = parseInt(url.searchParams.get('page') || '1')
+  const pageSize = parseInt(url.searchParams.get('page_size') || '20')
+
+  // Get pending approvals using the view
+  const { data: approvals, error, count } = await supabase
+    .from('pending_time_approvals')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1)
+
+  if (error) return c.json({ error: error.message }, 400)
+
+  const response = {
+    approvals: approvals || [],
+    pagination: {
+      page,
+      page_size: pageSize,
+      total: count || 0,
+    },
+  }
+
+  const parsed = PendingApprovalsResponseSchema.safeParse(response)
+  if (!parsed.success) {
+    return c.json({ error: 'Unexpected response shape' }, 500)
+  }
+
   return c.json(parsed.data)
 })
+
+// Approve/reject time entry
+app.put('/api/time/entries/:id/approve', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  try {
+    await ensurePermission(supabase, tenantId, 'time.approve')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Forbidden'
+    return c.json({ error: message }, 403)
+  }
+
+  const entryId = c.req.param('id')
+  const body = await c.req.json()
+  const parsed = TimeEntryApprovalInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.issues }, 400)
+  }
+
+  const { decision, reason } = parsed.data
+
+  // Get existing entry
+  const { data: existing, error: fetchError } = await supabase
+    .from('time_entries')
+    .select('*')
+    .eq('id', entryId)
+    .eq('tenant_id', tenantId)
+    .eq('approval_status', 'pending')
+    .single()
+
+  if (fetchError) return c.json({ error: fetchError.message }, 400)
+  if (!existing) return c.json({ error: 'Pending time entry not found' }, 404)
+
+  // Update entry
+  const { data: updated, error: updateError } = await supabase
+    .from('time_entries')
+    .update({
+      approval_status: decision === 'approve' ? 'approved' : 'rejected',
+      approver_user_id: user.id,
+      approved_at: decision === 'approve' ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', entryId)
+    .select('*')
+    .single()
+
+  if (updateError) return c.json({ error: updateError.message }, 400)
+
+  // Create audit log
+  await createAuditLog(
+    entryId,
+    user.id,
+    'approval_status',
+    'pending',
+    decision === 'approve' ? 'approved' : 'rejected',
+    reason,
+    supabase
+  )
+
+  return c.json(updated)
+})
+
+// Get audit trail for time entry
+app.get('/api/time/entries/:id/audit', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  const entryId = c.req.param('id')
+
+  // Check if user can view this entry
+  const { data: entry, error: fetchError } = await supabase
+    .from('time_entries')
+    .select('user_id')
+    .eq('id', entryId)
+    .eq('tenant_id', tenantId)
+    .single()
+
+  if (fetchError) return c.json({ error: fetchError.message }, 400)
+  if (!entry) return c.json({ error: 'Time entry not found' }, 404)
+
+  if (entry.user_id !== user.id) {
+    try {
+      await ensurePermission(supabase, tenantId, 'time.view_team')
+    } catch {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+  }
+
+  // Get audit trail
+  const { data: audit, error } = await supabase
+    .from('time_entry_audit')
+    .select('*')
+    .eq('time_entry_id', entryId)
+    .order('created_at', { ascending: false })
+
+  if (error) return c.json({ error: error.message }, 400)
+
+  return c.json({ audit: audit || [] })
+})
+
+// ==============================================
+// Overtime Management Endpoints
+// ==============================================
+
+// Get current user's overtime balance
+app.get('/api/overtime/balance', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  try {
+    await ensurePermission(supabase, tenantId, 'overtime.view')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Forbidden'
+    return c.json({ error: message }, 403)
+  }
+
+  const url = new URL(c.req.url)
+  const period = url.searchParams.get('period') || getCurrentPeriod()
+
+  const { data: balance, error } = await supabase
+    .from('overtime_balances')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('tenant_id', tenantId)
+    .eq('period', period)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    return c.json({ error: error.message }, 400)
+  }
+
+  if (!balance) {
+    // Create default balance if none exists
+    const { data: newBalance, error: createError } = await supabase
+      .from('overtime_balances')
+      .insert({
+        user_id: user.id,
+        tenant_id: tenantId,
+        period,
+        regular_hours: 0,
+        overtime_hours: 0,
+        overtime_multiplier: 1.5,
+        carry_over_hours: 0,
+      })
+      .select()
+      .single()
+
+    if (createError) return c.json({ error: createError.message }, 400)
+    return c.json(newBalance)
+  }
+
+  return c.json(balance)
+})
+
+// Get specific user's overtime balance (manager only)
+app.get('/api/overtime/balance/:userId', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  try {
+    await ensurePermission(supabase, tenantId, 'time.view_team')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Forbidden'
+    return c.json({ error: message }, 403)
+  }
+
+  const targetUserId = c.req.param('userId')
+  const url = new URL(c.req.url)
+  const period = url.searchParams.get('period') || getCurrentPeriod()
+
+  const { data: balance, error } = await supabase
+    .from('overtime_balances')
+    .select('*')
+    .eq('user_id', targetUserId)
+    .eq('tenant_id', tenantId)
+    .eq('period', period)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    return c.json({ error: error.message }, 400)
+  }
+
+  if (!balance) {
+    return c.json({
+      user_id: targetUserId,
+      tenant_id: tenantId,
+      period,
+      regular_hours: 0,
+      overtime_hours: 0,
+      overtime_multiplier: 1.5,
+      carry_over_hours: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+  }
+
+  return c.json(balance)
+})
+
+// Trigger overtime calculation for period (admin only)
+app.post('/api/overtime/calculate', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  try {
+    await ensurePermission(supabase, tenantId, 'overtime.approve')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Forbidden'
+    return c.json({ error: message }, 403)
+  }
+
+  const body = await c.req.json()
+  const parsed = OvertimeCalculationRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.issues }, 400)
+  }
+
+  const { user_id, start_date, end_date } = parsed.data
+
+  const start = new Date(start_date)
+  const end = new Date(end_date)
+
+  if (end <= start) {
+    return c.json({ error: 'End date must be after start date' }, 400)
+  }
+
+  try {
+    const { regularHours, overtimeHours } = await calculateOvertimeForPeriod(
+      user_id,
+      tenantId,
+      start,
+      end,
+      supabase
+    )
+
+    // Get or create balance for the period
+    const period = getPeriodForDate(start)
+    const balance = await getOrCreateOvertimeBalance(user_id, tenantId, period, supabase)
+
+    // Update balance
+    const { data: updated, error: updateError } = await supabase
+      .from('overtime_balances')
+      .update({
+        regular_hours: regularHours,
+        overtime_hours: overtimeHours,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', balance.id)
+      .select()
+      .single()
+
+    if (updateError) return c.json({ error: updateError.message }, 400)
+
+    return c.json(updated)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Calculation failed'
+    return c.json({ error: message }, 500)
+  }
+})
+
+// Get tenant's overtime rules
+app.get('/api/overtime/rules', async (c) => {
+  const user = c.get('user') as User
+  const supabase = c.get('supabase') as SupabaseClient<Database>
+
+  let tenantId: string
+  try {
+    tenantId = await getPrimaryTenantId(supabase)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+    return c.json({ error: message }, 400)
+  }
+
+  try {
+    await ensurePermission(supabase, tenantId, 'overtime.view')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Forbidden'
+    return c.json({ error: message }, 403)
+  }
+
+  const { data: rules, error } = await supabase
+    .from('overtime_rules')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: false })
+
+  if (error) return c.json({ error: error.message }, 400)
+
+  return c.json({ rules: rules || [] })
+})
+
+// Helper function to get current period (e.g., "2025-W10")
+function getCurrentPeriod(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const week = getWeekNumber(now)
+  return `${year}-W${week.toString().padStart(2, '0')}`
+}
+
+// Helper function to get period for a specific date
+function getPeriodForDate(date: Date): string {
+  const year = date.getFullYear()
+  const week = getWeekNumber(date)
+  return `${year}-W${week.toString().padStart(2, '0')}`
+}
+
+// Helper function to get week number
+function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+}
 
 // Pending time-off requests for approvers (manager+)
 app.get('/api/time-off/requests/pending', async (c) => {

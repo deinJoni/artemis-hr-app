@@ -1,5 +1,6 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { useRevalidator } from "react-router";
 import type { Route } from "./+types/employees";
 import { Button } from "~/components/ui/button";
 import { EmployeeDataTable } from "~/components/employees/data-table";
@@ -8,7 +9,10 @@ import { supabase } from "~/lib/supabase";
 import { EmployeeCreateInputSchema, type Employee, type EmployeeCustomFieldDef } from "@vibe/shared";
 import { useEmployeeFieldDefs } from "~/hooks/use-employee-field-defs";
 import { cn } from "~/lib/utils";
-import { Loader2, Plus, RefreshCw, X } from "lucide-react";
+import { Loader2, Plus, RefreshCw, X, Filter, Download, Upload, Trash2, Edit } from "lucide-react";
+import { Input } from "~/components/ui/input";
+import { Badge } from "~/components/ui/badge";
+import { ImportWizard } from "~/components/employees/import-wizard";
 
 const employmentTypes = ["Full-time", "Part-time", "Contractor", "Intern", "Seasonal"] as const;
 const salaryFrequencyOptions = ["per year", "per month", "per week", "per hour"] as const;
@@ -124,6 +128,7 @@ export function meta({}: Route.MetaArgs) {
 
 export default function Employees({ loaderData }: Route.ComponentProps) {
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" }) as { baseUrl: string };
+  const revalidator = useRevalidator();
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
 
   const [tenantId, setTenantId] = React.useState<string | null>(null);
@@ -136,6 +141,23 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [activeStepIndex, setActiveStepIndex] = React.useState(0);
   const [wizardError, setWizardError] = React.useState<string | null>(null);
+  
+  // Filter states
+  const [departmentFilter, setDepartmentFilter] = React.useState<string>("");
+  const [statusFilter, setStatusFilter] = React.useState<string>("");
+  const [showFilters, setShowFilters] = React.useState(false);
+  
+  // Bulk action states
+  const [selectedEmployees, setSelectedEmployees] = React.useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = React.useState<string>("");
+  const [showBulkActions, setShowBulkActions] = React.useState(false);
+  
+  // Department data for filter
+  const [departments, setDepartments] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [loadingDepartments, setLoadingDepartments] = React.useState(false);
+  
+  // Import wizard state
+  const [showImportWizard, setShowImportWizard] = React.useState(false);
 
   const {
     data,
@@ -186,9 +208,148 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     };
   }, [apiBaseUrl]);
 
+  // Load departments for filter
+  React.useEffect(() => {
+    if (!tenantId) return;
+    
+    let cancelled = false;
+    async function loadDepartments() {
+      setLoadingDepartments(true);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) throw new Error("Missing access token");
+        
+        const deptRes = await fetch(`${apiBaseUrl}/api/departments/${tenantId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const deptJson = await deptRes.json();
+        if (!deptRes.ok) throw new Error(deptJson.error || "Unable to load departments");
+        
+        if (cancelled) return;
+        setDepartments(deptJson.departments || []);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          console.error("Failed to load departments:", e);
+        }
+      } finally {
+        if (!cancelled) setLoadingDepartments(false);
+      }
+    }
+    void loadDepartments();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, tenantId]);
+
   const handleRefresh = React.useCallback(() => {
     void refresh();
   }, [refresh]);
+
+  const handleExport = React.useCallback(async () => {
+    if (!tenantId) return;
+    
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Missing access token");
+      
+      const params = new URLSearchParams();
+      if (departmentFilter) params.append('departmentId', departmentFilter);
+      if (statusFilter) params.append('status', statusFilter);
+      
+      const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!response.ok) throw new Error("Export failed");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `employees_export_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Export failed";
+      setMutationError(message);
+    }
+  }, [apiBaseUrl, tenantId, departmentFilter, statusFilter]);
+
+  const handleBulkAction = React.useCallback(async (action: string) => {
+    if (!tenantId || selectedEmployees.size === 0) return;
+    
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Missing access token");
+      
+      if (action === 'export') {
+        // Export selected employees
+        const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/export?employeeIds=${Array.from(selectedEmployees).join(',')}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (!response.ok) throw new Error("Export failed");
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `selected_employees_export_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else if (action === 'delete') {
+        if (!confirm(`Are you sure you want to delete ${selectedEmployees.size} employees? This action cannot be undone.`)) {
+          return;
+        }
+        
+        // Delete selected employees
+        for (const employeeId of selectedEmployees) {
+          const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/${employeeId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          
+          if (!response.ok) {
+            const json = await response.json();
+            throw new Error(json.error || `Failed to delete employee ${employeeId}`);
+          }
+        }
+        
+        setSelectedEmployees(new Set());
+        await refresh();
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Bulk action failed";
+      setMutationError(message);
+    }
+  }, [apiBaseUrl, tenantId, selectedEmployees, refresh]);
+
+  const handleSelectEmployee = React.useCallback((employeeId: string, selected: boolean) => {
+    setSelectedEmployees(prev => {
+      const newSet = new Set(prev);
+      if (selected) {
+        newSet.add(employeeId);
+      } else {
+        newSet.delete(employeeId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const handleSelectAll = React.useCallback((selected: boolean) => {
+    if (selected) {
+      setSelectedEmployees(new Set(data.map(emp => emp.id)));
+    } else {
+      setSelectedEmployees(new Set());
+    }
+  }, [data]);
 
   const resetWizardState = React.useCallback(() => {
     setCreateForm(createInitialWizardState());
@@ -384,6 +545,8 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               A powerful command center to search, sort, and manage your people data.
             </p>
           </div>
+          
+          {/* Search and Actions */}
           <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/70 p-4 shadow-sm backdrop-blur-sm md:flex-row md:items-center md:justify-between">
             <div className="relative w-full md:max-w-xl">
               <input
@@ -421,6 +584,28 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               </Button>
               <Button
                 type="button"
+                variant="outline"
+                size="lg"
+                onClick={handleExport}
+                disabled={!tenantId}
+                className="h-12 rounded-xl border border-input"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                onClick={() => setShowImportWizard(true)}
+                disabled={!tenantId}
+                className="h-12 rounded-xl border border-input"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Import
+              </Button>
+              <Button
+                type="button"
                 size="lg"
                 className="h-12 rounded-xl bg-orange-500 text-orange-50 hover:bg-orange-500/90"
                 onClick={handleOpenWizard}
@@ -431,6 +616,117 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               </Button>
             </div>
           </div>
+          
+          {/* Filters and Bulk Actions */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="h-10"
+              >
+                <Filter className="mr-2 h-4 w-4" />
+                Filters
+                {(departmentFilter || statusFilter) && (
+                  <Badge variant="secondary" className="ml-2">
+                    {(departmentFilter ? 1 : 0) + (statusFilter ? 1 : 0)}
+                  </Badge>
+                )}
+              </Button>
+              
+              {selectedEmployees.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {selectedEmployees.size} selected
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleBulkAction('export')}
+                    className="h-10"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export Selected
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleBulkAction('delete')}
+                    className="h-10 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Selected
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedEmployees(new Set())}
+                    className="h-10"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Filter Panel */}
+          {showFilters && (
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Department</label>
+                  <select
+                    value={departmentFilter}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDepartmentFilter(e.target.value)}
+                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  >
+                    <option value="">All Departments</option>
+                    {departments.map(dept => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value)}
+                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="active">Active</option>
+                    <option value="on_leave">On Leave</option>
+                    <option value="terminated">Terminated</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+                
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDepartmentFilter("");
+                      setStatusFilter("");
+                    }}
+                    className="h-10"
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </header>
 
         {initError || mutationError ? (
@@ -458,6 +754,11 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
             onRemove={handleRemove}
             removingId={removingId}
             toolbar={null}
+            selectedEmployees={selectedEmployees}
+            onSelectEmployee={handleSelectEmployee}
+            onSelectAll={handleSelectAll}
+            departmentFilter={departmentFilter}
+            statusFilter={statusFilter}
           />
         </section>
       </div>
@@ -816,6 +1117,19 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
           </div>
         </div>
       </SlideOver>
+      
+      {/* Import Wizard */}
+      <ImportWizard
+        isOpen={showImportWizard}
+        onClose={() => setShowImportWizard(false)}
+        onComplete={() => {
+          setShowImportWizard(false);
+          // Refresh the employee list
+          revalidator.revalidate();
+        }}
+        apiBaseUrl={apiBaseUrl}
+        tenantId={tenantId || ""}
+      />
     </div>
   );
 }

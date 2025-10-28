@@ -1,25 +1,21 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-
 @custom-variant dark (&:is(.dark *));
 @custom-variant themename-light (&:is(.themename-light *));
 @custom-variant themename-dark (&:is(.themename-dark *));
 @custom-variant theme2-light (&:is(.theme2-light *));
 @custom-variant theme2-dark (&:is(.theme2-dark *));
 
-
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
-
 html,
 body {
   min-height: 100%;
 }
-
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
@@ -59,7 +55,6 @@ body {
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -95,7 +90,6 @@ body {
   --sidebar-ring: oklch(0.705 0.015 286.067);
 }
 
-
 .dark {
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.985 0 0);
@@ -129,7 +123,6 @@ body {
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
 }
-
 
 .themename-light {
   --radius: 0.75rem;
@@ -166,7 +159,6 @@ body {
   --sidebar-ring: oklch(0.62 0.21 35);
 }
 
-
 .themename-dark {
   --radius: 0.75rem;
   --background: oklch(0.15 0.005 264.05);
@@ -201,7 +193,6 @@ body {
   --sidebar-border: oklch(0.25 0.01 264.05);
   --sidebar-ring: oklch(0.62 0.21 35);
 }
-
 
 .theme2-light {
   --radius: 0.75rem;
@@ -238,7 +229,6 @@ body {
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-
 .theme2-dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -273,7 +263,6 @@ body {
   --sidebar-ring: oklch(0.439 0 0);
 }
 
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -283,16 +272,13 @@ body {
   }
 }
 
-
 .step-panel-forward {
   animation: onboarding-step-in 0.45s ease forwards;
 }
 
-
 .step-panel-back {
   animation: onboarding-step-in-back 0.45s ease forwards;
 }
-
 
 @keyframes onboarding-step-in {
   0% {
@@ -305,7 +291,6 @@ body {
   }
 }
 
-
 @keyframes onboarding-step-in-back {
   0% {
     opacity: 0;
@@ -314,5 +299,14 @@ body {
   100% {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
   }
 }

@@ -1,0 +1,156 @@
+-- Supabase CLI already applies SQL migrations during `supabase db reset`.
+-- Keep this file to satisfy the seed step; add data inserts here when needed.
+
+-- Sample data for Core HR & Employee Management Module
+
+-- Insert sample departments
+INSERT INTO public.departments (id, tenant_id, name, description, parent_id, head_employee_id, cost_center, created_at, updated_at) VALUES
+  ('550e8400-e29b-41d4-a716-446655440001', '550e8400-e29b-41d4-a716-446655440000', 'Engineering', 'Software development and technical operations', NULL, NULL, 'ENG-001', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440002', '550e8400-e29b-41d4-a716-446655440000', 'Product', 'Product management and design', NULL, NULL, 'PROD-001', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440003', '550e8400-e29b-41d4-a716-446655440000', 'Sales', 'Sales and business development', NULL, NULL, 'SALES-001', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440004', '550e8400-e29b-41d4-a716-446655440000', 'Marketing', 'Marketing and communications', NULL, NULL, 'MKT-001', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440005', '550e8400-e29b-41d4-a716-446655440000', 'Human Resources', 'People operations and talent management', NULL, NULL, 'HR-001', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440006', '550e8400-e29b-41d4-a716-446655440000', 'Finance', 'Financial planning and accounting', NULL, NULL, 'FIN-001', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440007', '550e8400-e29b-41d4-a716-446655440000', 'Frontend Engineering', 'Frontend development team', '550e8400-e29b-41d4-a716-446655440001', NULL, 'ENG-002', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440008', '550e8400-e29b-41d4-a716-446655440000', 'Backend Engineering', 'Backend development team', '550e8400-e29b-41d4-a716-446655440001', NULL, 'ENG-003', NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440009', '550e8400-e29b-41d4-a716-446655440000', 'DevOps', 'Infrastructure and deployment', '550e8400-e29b-41d4-a716-446655440001', NULL, 'ENG-004', NOW(), NOW());
+
+-- Insert sample employees
+INSERT INTO public.employees (
+  id, tenant_id, email, name, manager_id, custom_fields, employee_number, date_of_birth, 
+  nationality, phone_personal, phone_work, emergency_contact_name, emergency_contact_phone,
+  home_address, job_title, department_id, employment_type, work_location, start_date, 
+  end_date, status, salary_amount, salary_currency, salary_frequency, bank_account_encrypted,
+  tax_id_encrypted, profile_completion_pct, created_at, updated_at
+) VALUES
+  -- CEO
+  ('550e8400-e29b-41d4-a716-446655440010', '550e8400-e29b-41d4-a716-446655440000', 'sarah.chen@company.com', 'Sarah Chen', NULL, '{"bio": "Visionary leader with 15+ years in tech", "linkedin": "https://linkedin.com/in/sarahchen"}', 'EMP-2024-001', '1980-03-15', 'US', '+1-555-0101', '+1-555-0102', 'John Chen', '+1-555-0103', '{"street": "123 Executive Ave", "city": "San Francisco", "state": "CA", "postal_code": "94105", "country": "US"}', 'Chief Executive Officer', '550e8400-e29b-41d4-a716-446655440001', 'full_time', 'office', '2020-01-15', NULL, 'active', 300000.00, 'USD', 'yearly', 'encrypted_bank_info_1', 'encrypted_tax_id_1', 95, NOW(), NOW()),
+  
+  -- CTO
+  ('550e8400-e29b-41d4-a716-446655440011', '550e8400-e29b-41d4-a716-446655440000', 'mike.rodriguez@company.com', 'Mike Rodriguez', '550e8400-e29b-41d4-a716-446655440010', '{"bio": "Tech leader passionate about scalable systems", "github": "https://github.com/mikerod"}', 'EMP-2024-002', '1985-07-22', 'US', '+1-555-0201', '+1-555-0202', 'Maria Rodriguez', '+1-555-0203', '{"street": "456 Tech Street", "city": "San Francisco", "state": "CA", "postal_code": "94107", "country": "US"}', 'Chief Technology Officer', '550e8400-e29b-41d4-a716-446655440001', 'full_time', 'office', '2020-02-01', NULL, 'active', 280000.00, 'USD', 'yearly', 'encrypted_bank_info_2', 'encrypted_tax_id_2', 90, NOW(), NOW()),
+  
+  -- VP Engineering
+  ('550e8400-e29b-41d4-a716-446655440012', '550e8400-e29b-41d4-a716-446655440000', 'alex.kim@company.com', 'Alex Kim', '550e8400-e29b-41d4-a716-446655440011', '{"bio": "Engineering manager focused on team growth", "certifications": ["AWS Solutions Architect", "Kubernetes Administrator"]}', 'EMP-2024-003', '1988-11-08', 'US', '+1-555-0301', '+1-555-0302', 'Lisa Kim', '+1-555-0303', '{"street": "789 Code Lane", "city": "San Francisco", "state": "CA", "postal_code": "94110", "country": "US"}', 'VP of Engineering', '550e8400-e29b-41d4-a716-446655440001', 'full_time', 'hybrid', '2020-03-15', NULL, 'active', 220000.00, 'USD', 'yearly', 'encrypted_bank_info_3', 'encrypted_tax_id_3', 85, NOW(), NOW()),
+  
+  -- Senior Frontend Developer
+  ('550e8400-e29b-41d4-a716-446655440013', '550e8400-e29b-41d4-a716-446655440000', 'jessica.wong@company.com', 'Jessica Wong', '550e8400-e29b-41d4-a716-446655440012', '{"bio": "Frontend specialist with React expertise", "portfolio": "https://jessicawong.dev", "skills": ["React", "TypeScript", "Next.js"]}', 'EMP-2024-004', '1992-05-14', 'US', '+1-555-0401', '+1-555-0402', 'David Wong', '+1-555-0403', '{"street": "321 Frontend Ave", "city": "San Francisco", "state": "CA", "postal_code": "94102", "country": "US"}', 'Senior Frontend Developer', '550e8400-e29b-41d4-a716-446655440007', 'full_time', 'remote', '2021-06-01', NULL, 'active', 140000.00, 'USD', 'yearly', 'encrypted_bank_info_4', 'encrypted_tax_id_4', 80, NOW(), NOW()),
+  
+  -- Backend Developer
+  ('550e8400-e29b-41d4-a716-446655440014', '550e8400-e29b-41d4-a716-446655440000', 'david.patel@company.com', 'David Patel', '550e8400-e29b-41d4-a716-446655440012', '{"bio": "Backend engineer with microservices experience", "github": "https://github.com/davidpatel", "skills": ["Node.js", "Python", "PostgreSQL"]}', 'EMP-2024-005', '1990-09-30', 'US', '+1-555-0501', '+1-555-0502', 'Priya Patel', '+1-555-0503', '{"street": "654 Backend Blvd", "city": "San Francisco", "state": "CA", "postal_code": "94103", "country": "US"}', 'Backend Developer', '550e8400-e29b-41d4-a716-446655440008', 'full_time', 'hybrid', '2021-08-15', NULL, 'active', 130000.00, 'USD', 'yearly', 'encrypted_bank_info_5', 'encrypted_tax_id_5', 75, NOW(), NOW()),
+  
+  -- DevOps Engineer
+  ('550e8400-e29b-41d4-a716-446655440015', '550e8400-e29b-41d4-a716-446655440000', 'emma.thompson@company.com', 'Emma Thompson', '550e8400-e29b-41d4-a716-446655440012', '{"bio": "DevOps engineer focused on infrastructure automation", "certifications": ["AWS DevOps Engineer", "Docker Certified"]}', 'EMP-2024-006', '1987-12-03', 'US', '+1-555-0601', '+1-555-0602', 'Robert Thompson', '+1-555-0603', '{"street": "987 DevOps Drive", "city": "San Francisco", "state": "CA", "postal_code": "94104", "country": "US"}', 'DevOps Engineer', '550e8400-e29b-41d4-a716-446655440009', 'full_time', 'office', '2021-09-01', NULL, 'active', 150000.00, 'USD', 'yearly', 'encrypted_bank_info_6', 'encrypted_tax_id_6', 88, NOW(), NOW()),
+  
+  -- Product Manager
+  ('550e8400-e29b-41d4-a716-446655440016', '550e8400-e29b-41d4-a716-446655440000', 'ryan.lee@company.com', 'Ryan Lee', '550e8400-e29b-41d4-a716-446655440010', '{"bio": "Product strategist with data-driven approach", "linkedin": "https://linkedin.com/in/ryanlee", "education": "MBA Stanford"}', 'EMP-2024-007', '1986-04-18', 'US', '+1-555-0701', '+1-555-0702', 'Jennifer Lee', '+1-555-0703', '{"street": "147 Product Place", "city": "San Francisco", "state": "CA", "postal_code": "94105", "country": "US"}', 'Senior Product Manager', '550e8400-e29b-41d4-a716-446655440002', 'full_time', 'hybrid', '2020-04-01', NULL, 'active', 160000.00, 'USD', 'yearly', 'encrypted_bank_info_7', 'encrypted_tax_id_7', 92, NOW(), NOW()),
+  
+  -- Sales Director
+  ('550e8400-e29b-41d4-a716-446655440017', '550e8400-e29b-41d4-a716-446655440000', 'maria.garcia@company.com', 'Maria Garcia', '550e8400-e29b-41d4-a716-446655440010', '{"bio": "Sales leader with 10+ years in B2B tech", "achievements": ["Top performer 2022", "Team builder"]}', 'EMP-2024-008', '1983-08-25', 'US', '+1-555-0801', '+1-555-0802', 'Carlos Garcia', '+1-555-0803', '{"street": "258 Sales Street", "city": "San Francisco", "state": "CA", "postal_code": "94106", "country": "US"}', 'Sales Director', '550e8400-e29b-41d4-a716-446655440003', 'full_time', 'office', '2020-05-15', NULL, 'active', 180000.00, 'USD', 'yearly', 'encrypted_bank_info_8', 'encrypted_tax_id_8', 87, NOW(), NOW()),
+  
+  -- Marketing Manager
+  ('550e8400-e29b-41d4-a716-446655440018', '550e8400-e29b-41d4-a716-446655440000', 'james.wilson@company.com', 'James Wilson', '550e8400-e29b-41d4-a716-446655440010', '{"bio": "Creative marketer with digital expertise", "portfolio": "https://jameswilson.creative", "skills": ["Digital Marketing", "Content Strategy"]}', 'EMP-2024-009', '1989-01-12', 'US', '+1-555-0901', '+1-555-0902', 'Sarah Wilson', '+1-555-0903', '{"street": "369 Marketing Mews", "city": "San Francisco", "state": "CA", "postal_code": "94108", "country": "US"}', 'Marketing Manager', '550e8400-e29b-41d4-a716-446655440004', 'full_time', 'hybrid', '2021-01-10', NULL, 'active', 120000.00, 'USD', 'yearly', 'encrypted_bank_info_9', 'encrypted_tax_id_9', 82, NOW(), NOW()),
+  
+  -- HR Manager
+  ('550e8400-e29b-41d4-a716-446655440019', '550e8400-e29b-41d4-a716-446655440000', 'lisa.brown@company.com', 'Lisa Brown', '550e8400-e29b-41d4-a716-446655440010', '{"bio": "HR professional focused on employee experience", "certifications": ["SHRM-CP", "PHR"], "education": "MS Human Resources"}', 'EMP-2024-010', '1984-06-20', 'US', '+1-555-1001', '+1-555-1002', 'Michael Brown', '+1-555-1003', '{"street": "741 HR Heights", "city": "San Francisco", "state": "CA", "postal_code": "94109", "country": "US"}', 'HR Manager', '550e8400-e29b-41d4-a716-446655440005', 'full_time', 'office', '2020-06-01', NULL, 'active', 110000.00, 'USD', 'yearly', 'encrypted_bank_info_10', 'encrypted_tax_id_10', 90, NOW(), NOW()),
+  
+  -- Finance Manager
+  ('550e8400-e29b-41d4-a716-446655440020', '550e8400-e29b-41d4-a716-446655440000', 'kevin.davis@company.com', 'Kevin Davis', '550e8400-e29b-41d4-a716-446655440010', '{"bio": "Finance professional with startup experience", "certifications": ["CPA", "CFA"], "education": "MBA Finance"}', 'EMP-2024-011', '1982-10-07', 'US', '+1-555-1101', '+1-555-1102', 'Amanda Davis', '+1-555-1103', '{"street": "852 Finance Foothills", "city": "San Francisco", "state": "CA", "postal_code": "94111", "country": "US"}', 'Finance Manager', '550e8400-e29b-41d4-a716-446655440006', 'full_time', 'office', '2020-07-01', NULL, 'active', 125000.00, 'USD', 'yearly', 'encrypted_bank_info_11', 'encrypted_tax_id_11', 93, NOW(), NOW()),
+  
+  -- Intern
+  ('550e8400-e29b-41d4-a716-446655440021', '550e8400-e29b-41d4-a716-446655440000', 'sophie.martinez@company.com', 'Sophie Martinez', '550e8400-e29b-41d4-a716-446655440012', '{"bio": "Computer Science student eager to learn", "education": "BS Computer Science (in progress)", "university": "UC Berkeley"}', 'EMP-2024-012', '2001-03-15', 'US', '+1-555-1201', '+1-555-1202', 'Elena Martinez', '+1-555-1203', '{"street": "963 Student Street", "city": "Berkeley", "state": "CA", "postal_code": "94720", "country": "US"}', 'Software Engineering Intern', '550e8400-e29b-41d4-a716-446655440007', 'intern', 'hybrid', '2024-01-15', '2024-08-15', 'active', 25.00, 'USD', 'hourly', 'encrypted_bank_info_12', 'encrypted_tax_id_12', 60, NOW(), NOW()),
+  
+  -- Contractor
+  ('550e8400-e29b-41d4-a716-446655440022', '550e8400-e29b-41d4-a716-446655440000', 'alex.chen@company.com', 'Alex Chen', '550e8400-e29b-41d4-a716-446655440012', '{"bio": "Freelance designer with startup experience", "portfolio": "https://alexchen.design", "skills": ["UI/UX Design", "Figma", "Adobe Creative Suite"]}', 'EMP-2024-013', '1995-11-28', 'US', '+1-555-1301', '+1-555-1302', 'Grace Chen', '+1-555-1303', '{"street": "174 Design Drive", "city": "San Francisco", "state": "CA", "postal_code": "94112", "country": "US"}', 'UI/UX Designer', '550e8400-e29b-41d4-a716-446655440002', 'contractor', 'remote', '2023-09-01', '2024-09-01', 'active', 75.00, 'USD', 'hourly', 'encrypted_bank_info_13', 'encrypted_tax_id_13', 70, NOW(), NOW()),
+  
+  -- On Leave Employee
+  ('550e8400-e29b-41d4-a716-446655440023', '550e8400-e29b-41d4-a716-446655440000', 'robert.taylor@company.com', 'Robert Taylor', '550e8400-e29b-41d4-a716-446655440012', '{"bio": "Senior developer on parental leave", "skills": ["Java", "Spring Boot", "Microservices"]}', 'EMP-2024-014', '1988-02-14', 'US', '+1-555-1401', '+1-555-1402', 'Jennifer Taylor', '+1-555-1403', '{"street": "285 Parental Place", "city": "San Francisco", "state": "CA", "postal_code": "94113", "country": "US"}', 'Senior Backend Developer', '550e8400-e29b-41d4-a716-446655440008', 'full_time', 'remote', '2021-03-01', NULL, 'on_leave', 155000.00, 'USD', 'yearly', 'encrypted_bank_info_14', 'encrypted_tax_id_14', 85, NOW(), NOW());
+
+-- Update department heads
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440011' WHERE id = '550e8400-e29b-41d4-a716-446655440001';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440012' WHERE id = '550e8400-e29b-41d4-a716-446655440007';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440012' WHERE id = '550e8400-e29b-41d4-a716-446655440008';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440012' WHERE id = '550e8400-e29b-41d4-a716-446655440009';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440016' WHERE id = '550e8400-e29b-41d4-a716-446655440002';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440017' WHERE id = '550e8400-e29b-41d4-a716-446655440003';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440018' WHERE id = '550e8400-e29b-41d4-a716-446655440004';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440019' WHERE id = '550e8400-e29b-41d4-a716-446655440005';
+UPDATE public.departments SET head_employee_id = '550e8400-e29b-41d4-a716-446655440020' WHERE id = '550e8400-e29b-41d4-a716-446655440006';
+
+-- Insert sample employee documents
+INSERT INTO public.employee_documents (
+  id, tenant_id, employee_id, file_name, storage_path, file_size, mime_type, 
+  uploaded_by, uploaded_at, version, previous_version_id, is_current, 
+  category, expiry_date, updated_at
+) VALUES
+  ('550e8400-e29b-41d4-a716-446655440100', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440010', 'employment_contract.pdf', 'documents/contracts/employment_contract_001.pdf', 245760, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'contract', NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440101', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440010', 'id_document.pdf', 'documents/id/id_document_001.pdf', 156789, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'id_document', '2030-03-15', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440102', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440011', 'employment_contract.pdf', 'documents/contracts/employment_contract_002.pdf', 234567, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'contract', NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440103', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440011', 'background_check.pdf', 'documents/background/background_check_001.pdf', 189234, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'background_check', '2025-07-22', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440104', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440013', 'employment_contract.pdf', 'documents/contracts/employment_contract_003.pdf', 198765, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'contract', NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440105', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440013', 'performance_review_2023.pdf', 'documents/performance/performance_review_2023_001.pdf', 345678, 'application/pdf', '550e8400-e29b-41d4-a716-446655440012', NOW(), 1, NULL, true, 'performance', NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440106', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440021', 'internship_agreement.pdf', 'documents/contracts/internship_agreement_001.pdf', 123456, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'contract', '2024-08-15', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440107', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440021', 'student_id.pdf', 'documents/id/student_id_001.pdf', 98765, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'id_document', '2025-05-15', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440108', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440022', 'contractor_agreement.pdf', 'documents/contracts/contractor_agreement_001.pdf', 178234, 'application/pdf', '550e8400-e29b-41d4-a716-446655440019', NOW(), 1, NULL, true, 'contract', '2024-09-01', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440109', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440022', 'portfolio_samples.pdf', 'documents/portfolio/portfolio_samples_001.pdf', 456789, 'application/pdf', '550e8400-e29b-41d4-a716-446655440022', NOW(), 1, NULL, true, 'other', NULL, NOW());
+
+-- Insert sample employee status history
+INSERT INTO public.employee_status_history (
+  id, employee_id, status, effective_date, reason, created_by, created_at
+) VALUES
+  ('550e8400-e29b-41d4-a716-446655440200', '550e8400-e29b-41d4-a716-446655440010', 'active', '2020-01-15', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440201', '550e8400-e29b-41d4-a716-446655440011', 'active', '2020-02-01', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440202', '550e8400-e29b-41d4-a716-446655440012', 'active', '2020-03-15', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440203', '550e8400-e29b-41d4-a716-446655440013', 'active', '2021-06-01', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440204', '550e8400-e29b-41d4-a716-446655440014', 'active', '2021-08-15', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440205', '550e8400-e29b-41d4-a716-446655440015', 'active', '2021-09-01', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440206', '550e8400-e29b-41d4-a716-446655440016', 'active', '2020-04-01', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440207', '550e8400-e29b-41d4-a716-446655440017', 'active', '2020-05-15', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440208', '550e8400-e29b-41d4-a716-446655440018', 'active', '2021-01-10', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440209', '550e8400-e29b-41d4-a716-446655440019', 'active', '2020-06-01', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440210', '550e8400-e29b-41d4-a716-446655440020', 'active', '2020-07-01', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440211', '550e8400-e29b-41d4-a716-446655440021', 'active', '2024-01-15', 'Internship start', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440212', '550e8400-e29b-41d4-a716-446655440022', 'active', '2023-09-01', 'Contractor start', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440213', '550e8400-e29b-41d4-a716-446655440023', 'active', '2021-03-01', 'Initial hire', '550e8400-e29b-41d4-a716-446655440019', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440214', '550e8400-e29b-41d4-a716-446655440023', 'on_leave', '2024-01-01', 'Parental leave', '550e8400-e29b-41d4-a716-446655440019', NOW());
+
+-- Insert sample audit log entries (simplified to avoid JSON parsing issues)
+INSERT INTO public.employee_audit_log (
+  id, tenant_id, employee_id, changed_by, action, field_name, old_value, new_value, 
+  change_reason, ip_address, user_agent, created_at
+) VALUES
+  ('550e8400-e29b-41d4-a716-446655440300', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440010', '550e8400-e29b-41d4-a716-446655440019', 'created', NULL, NULL, '{"name": "Sarah Chen", "email": "sarah.chen@company.com", "job_title": "Chief Executive Officer"}', 'Initial employee creation', '192.168.1.100', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', NOW() - INTERVAL '2 days'),
+  ('550e8400-e29b-41d4-a716-446655440301', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440010', '550e8400-e29b-41d4-a716-446655440010', 'updated', 'salary_amount', '250000.00', '300000.00', 'Annual salary review and promotion', '192.168.1.101', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', NOW() - INTERVAL '1 day'),
+  ('550e8400-e29b-41d4-a716-446655440302', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440011', '550e8400-e29b-41d4-a716-446655440019', 'created', NULL, NULL, '{"name": "Mike Rodriguez", "email": "mike.rodriguez@company.com", "job_title": "Chief Technology Officer"}', 'Initial employee creation', '192.168.1.100', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', NOW() - INTERVAL '2 days'),
+  ('550e8400-e29b-41d4-a716-446655440303', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440013', '550e8400-e29b-41d4-a716-446655440012', 'updated', 'department_id', 'Engineering', 'Frontend Engineering', 'Department reorganization - moved to Frontend Engineering', '192.168.1.102', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', NOW() - INTERVAL '3 hours'),
+  ('550e8400-e29b-41d4-a716-446655440304', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440023', '550e8400-e29b-41d4-a716-446655440019', 'updated', 'status', 'active', 'on_leave', 'Started parental leave', '192.168.1.100', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', NOW() - INTERVAL '1 day');
+
+-- Insert sample custom field definitions
+INSERT INTO public.employee_custom_field_defs (
+  id, tenant_id, name, key, type, required, options, created_at
+) VALUES
+  ('550e8400-e29b-41d4-a716-446655440400', '550e8400-e29b-41d4-a716-446655440000', 'Bio', 'bio', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440401', '550e8400-e29b-41d4-a716-446655440000', 'LinkedIn Profile', 'linkedin', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440402', '550e8400-e29b-41d4-a716-446655440000', 'GitHub Profile', 'github', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440403', '550e8400-e29b-41d4-a716-446655440000', 'Portfolio URL', 'portfolio', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440404', '550e8400-e29b-41d4-a716-446655440000', 'Skills', 'skills', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440405', '550e8400-e29b-41d4-a716-446655440000', 'Certifications', 'certifications', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440406', '550e8400-e29b-41d4-a716-446655440000', 'Education', 'education', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440407', '550e8400-e29b-41d4-a716-446655440000', 'University', 'university', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440408', '550e8400-e29b-41d4-a716-446655440000', 'Achievements', 'achievements', 'text', false, NULL, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440409', '550e8400-e29b-41d4-a716-446655440000', 'Emergency Contact Relationship', 'emergency_contact_relationship', 'select', false, '{"choices": ["Spouse", "Parent", "Sibling", "Child", "Friend", "Other"]}', NOW());
+
+-- Update employee custom fields with sample data
+UPDATE public.employees SET custom_fields = '{"bio": "Visionary leader with 15+ years in tech", "linkedin": "https://linkedin.com/in/sarahchen"}' WHERE id = '550e8400-e29b-41d4-a716-446655440010';
+UPDATE public.employees SET custom_fields = '{"bio": "Tech leader passionate about scalable systems", "github": "https://github.com/mikerod"}' WHERE id = '550e8400-e29b-41d4-a716-446655440011';
+UPDATE public.employees SET custom_fields = '{"bio": "Engineering manager focused on team growth", "certifications": ["AWS Solutions Architect", "Kubernetes Administrator"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440012';
+UPDATE public.employees SET custom_fields = '{"bio": "Frontend specialist with React expertise", "portfolio": "https://jessicawong.dev", "skills": ["React", "TypeScript", "Next.js"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440013';
+UPDATE public.employees SET custom_fields = '{"bio": "Backend engineer with microservices experience", "github": "https://github.com/davidpatel", "skills": ["Node.js", "Python", "PostgreSQL"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440014';
+UPDATE public.employees SET custom_fields = '{"bio": "DevOps engineer focused on infrastructure automation", "certifications": ["AWS DevOps Engineer", "Docker Certified"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440015';
+UPDATE public.employees SET custom_fields = '{"bio": "Product strategist with data-driven approach", "linkedin": "https://linkedin.com/in/ryanlee", "education": "MBA Stanford", "certifications": ["PMP", "Agile Certified"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440016';
+UPDATE public.employees SET custom_fields = '{"bio": "Sales leader with 10+ years in B2B tech", "achievements": ["Top performer 2022", "Team builder"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440017';
+UPDATE public.employees SET custom_fields = '{"bio": "Creative marketer with digital expertise", "portfolio": "https://jameswilson.creative", "skills": ["Digital Marketing", "Content Strategy"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440018';
+UPDATE public.employees SET custom_fields = '{"bio": "HR professional focused on employee experience", "certifications": ["SHRM-CP", "PHR"], "education": "MS Human Resources"}' WHERE id = '550e8400-e29b-41d4-a716-446655440019';
+UPDATE public.employees SET custom_fields = '{"bio": "Finance professional with startup experience", "certifications": ["CPA", "CFA"], "education": "MBA Finance"}' WHERE id = '550e8400-e29b-41d4-a716-446655440020';
+UPDATE public.employees SET custom_fields = '{"bio": "Computer Science student eager to learn", "education": "BS Computer Science (in progress)", "university": "UC Berkeley"}' WHERE id = '550e8400-e29b-41d4-a716-446655440021';
+UPDATE public.employees SET custom_fields = '{"bio": "Freelance designer with startup experience", "portfolio": "https://alexchen.design", "skills": ["UI/UX Design", "Figma", "Adobe Creative Suite"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440022';
+UPDATE public.employees SET custom_fields = '{"bio": "Senior developer on parental leave", "skills": ["Java", "Spring Boot", "Microservices"]}' WHERE id = '550e8400-e29b-41d4-a716-446655440023';

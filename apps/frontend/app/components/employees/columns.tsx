@@ -7,6 +7,9 @@ import { cn } from "~/lib/utils";
 export type EmployeeTableMeta = {
   onRemove: (employee: Employee) => void;
   removingId: string | null;
+  selectedEmployees?: Set<string>;
+  onSelectEmployee?: (employeeId: string, selected: boolean) => void;
+  onSelectAll?: (selected: boolean) => void;
 };
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -18,6 +21,31 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 export const employeeColumns: ColumnDef<Employee>[] = [
+  {
+    id: "select",
+    header: ({ table }) => (
+      <input
+        type="checkbox"
+        checked={table.getIsAllPageRowsSelected()}
+        onChange={(e) => table.getToggleAllPageRowsSelectedHandler()?.(e)}
+        className="h-4 w-4 rounded border-input"
+      />
+    ),
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as EmployeeTableMeta;
+      const isSelected = meta.selectedEmployees?.has(row.original.id) || false;
+      return (
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={(e) => meta.onSelectEmployee?.(row.original.id, e.target.checked)}
+          className="h-4 w-4 rounded border-input"
+        />
+      );
+    },
+    enableSorting: false,
+    enableHiding: false,
+  },
   {
     accessorKey: "name",
     header: ({ column }) => (

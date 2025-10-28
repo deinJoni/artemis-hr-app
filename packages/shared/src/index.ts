@@ -165,6 +165,36 @@ export type MembershipUpdateInput = z.infer<typeof MembershipUpdateInputSchema>;
 // Employees (example domain)
 // ---------------------------
 
+// Enums for employee data
+export const EmploymentStatusEnum = z.enum(["active", "on_leave", "terminated", "inactive"]);
+export type EmploymentStatus = z.infer<typeof EmploymentStatusEnum>;
+
+export const EmploymentTypeEnum = z.enum(["full_time", "part_time", "contract", "intern", "seasonal"]);
+export type EmploymentType = z.infer<typeof EmploymentTypeEnum>;
+
+export const WorkLocationEnum = z.enum(["office", "remote", "hybrid"]);
+export type WorkLocation = z.infer<typeof WorkLocationEnum>;
+
+export const SalaryFrequencyEnum = z.enum(["yearly", "monthly", "weekly", "hourly"]);
+export type SalaryFrequency = z.infer<typeof SalaryFrequencyEnum>;
+
+export const DocumentCategoryEnum = z.enum(["contract", "certification", "id_document", "performance", "medical", "other"]);
+export type DocumentCategory = z.infer<typeof DocumentCategoryEnum>;
+
+export const AuditActionEnum = z.enum(["created", "updated", "deleted", "document_added", "document_removed", "status_changed"]);
+export type AuditAction = z.infer<typeof AuditActionEnum>;
+
+// Address schema for structured home address
+export const AddressSchema = z.object({
+  street: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  postal_code: z.string().optional(),
+  country: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+export type Address = z.infer<typeof AddressSchema>;
+
 export const EmployeeSchema = z.object({
   id: z.string().uuid(),
   tenant_id: z.string().uuid(),
@@ -173,6 +203,29 @@ export const EmployeeSchema = z.object({
   manager_id: z.string().uuid().nullable(),
   custom_fields: z.record(z.string(), z.any()).optional().nullable(),
   created_at: z.string(),
+  // New HR fields
+  employee_number: z.string().nullable(),
+  date_of_birth: z.string().nullable(), // ISO date string
+  nationality: z.string().nullable(),
+  phone_personal: z.string().nullable(),
+  phone_work: z.string().nullable(),
+  emergency_contact_name: z.string().nullable(),
+  emergency_contact_phone: z.string().nullable(),
+  home_address: AddressSchema.nullable(),
+  job_title: z.string().nullable(),
+  department_id: z.string().uuid().nullable(),
+  employment_type: EmploymentTypeEnum.nullable(),
+  work_location: WorkLocationEnum.nullable(),
+  start_date: z.string().nullable(), // ISO date string
+  end_date: z.string().nullable(), // ISO date string
+  status: EmploymentStatusEnum,
+  salary_amount: z.number().nullable(),
+  salary_currency: z.string().nullable(),
+  salary_frequency: SalaryFrequencyEnum.nullable(),
+  bank_account_encrypted: z.string().nullable(),
+  tax_id_encrypted: z.string().nullable(),
+  profile_completion_pct: z.number().int().min(0).max(100),
+  updated_at: z.string(),
 });
 export type Employee = z.infer<typeof EmployeeSchema>;
 
@@ -182,6 +235,27 @@ export const EmployeeCreateInputSchema = z.object({
   name: z.string().min(1),
   manager_id: z.string().uuid().nullable().optional(),
   custom_fields: z.record(z.string(), z.any()).optional(),
+  // New HR fields
+  employee_number: z.string().optional(),
+  date_of_birth: z.string().optional(), // ISO date string
+  nationality: z.string().optional(),
+  phone_personal: z.string().optional(),
+  phone_work: z.string().optional(),
+  emergency_contact_name: z.string().optional(),
+  emergency_contact_phone: z.string().optional(),
+  home_address: AddressSchema.optional(),
+  job_title: z.string().optional(),
+  department_id: z.string().uuid().optional(),
+  employment_type: EmploymentTypeEnum.optional(),
+  work_location: WorkLocationEnum.optional(),
+  start_date: z.string().optional(), // ISO date string
+  end_date: z.string().optional(), // ISO date string
+  status: EmploymentStatusEnum.optional(),
+  salary_amount: z.number().optional(),
+  salary_currency: z.string().optional(),
+  salary_frequency: SalaryFrequencyEnum.optional(),
+  bank_account_encrypted: z.string().optional(),
+  tax_id_encrypted: z.string().optional(),
 });
 export type EmployeeCreateInput = z.infer<typeof EmployeeCreateInputSchema>;
 
@@ -191,6 +265,27 @@ export const EmployeeUpdateInputSchema = z
     name: z.string().min(1).optional(),
     manager_id: z.string().uuid().nullable().optional(),
     custom_fields: z.record(z.string(), z.any()).optional().nullable(),
+    // New HR fields
+    employee_number: z.string().optional(),
+    date_of_birth: z.string().optional(), // ISO date string
+    nationality: z.string().optional(),
+    phone_personal: z.string().optional(),
+    phone_work: z.string().optional(),
+    emergency_contact_name: z.string().optional(),
+    emergency_contact_phone: z.string().optional(),
+    home_address: AddressSchema.optional().nullable(),
+    job_title: z.string().optional(),
+    department_id: z.string().uuid().optional().nullable(),
+    employment_type: EmploymentTypeEnum.optional(),
+    work_location: WorkLocationEnum.optional(),
+    start_date: z.string().optional(), // ISO date string
+    end_date: z.string().optional(), // ISO date string
+    status: EmploymentStatusEnum.optional(),
+    salary_amount: z.number().optional(),
+    salary_currency: z.string().optional(),
+    salary_frequency: SalaryFrequencyEnum.optional(),
+    bank_account_encrypted: z.string().optional(),
+    tax_id_encrypted: z.string().optional(),
   })
   .refine(
     (obj: Record<string, unknown>) => Object.values(obj).some((v) => v !== undefined),
@@ -209,8 +304,109 @@ export const EmployeeDocumentSchema = z.object({
   uploaded_by: z.string().uuid(),
   uploaded_at: z.string(),
   description: z.string().nullable(),
+  // New versioning fields
+  version: z.number().int().positive(),
+  previous_version_id: z.string().uuid().nullable(),
+  is_current: z.boolean(),
+  category: DocumentCategoryEnum.nullable(),
+  expiry_date: z.string().nullable(), // ISO date string
+  updated_at: z.string(),
 });
 export type EmployeeDocument = z.infer<typeof EmployeeDocumentSchema>;
+
+// Department schemas
+export const DepartmentSchema = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  parent_id: z.string().uuid().nullable(),
+  head_employee_id: z.string().uuid().nullable(),
+  cost_center: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Department = z.infer<typeof DepartmentSchema>;
+
+export const DepartmentCreateInputSchema = z.object({
+  tenant_id: z.string().uuid(),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  parent_id: z.string().uuid().optional(),
+  head_employee_id: z.string().uuid().optional(),
+  cost_center: z.string().optional(),
+});
+export type DepartmentCreateInput = z.infer<typeof DepartmentCreateInputSchema>;
+
+export const DepartmentUpdateInputSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    description: z.string().optional().nullable(),
+    parent_id: z.string().uuid().optional().nullable(),
+    head_employee_id: z.string().uuid().optional().nullable(),
+    cost_center: z.string().optional().nullable(),
+  })
+  .refine(
+    (obj: Record<string, unknown>) => Object.values(obj).some((v) => v !== undefined),
+    { message: "At least one field must be provided" }
+  );
+export type DepartmentUpdateInput = z.infer<typeof DepartmentUpdateInputSchema>;
+
+// Department hierarchy view
+export const DepartmentHierarchySchema = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  parent_id: z.string().uuid().nullable(),
+  head_employee_id: z.string().uuid().nullable(),
+  cost_center: z.string().nullable(),
+  level: z.number().int().min(0),
+  path: z.array(z.string().uuid()),
+  full_path: z.string(),
+  head_name: z.string().nullable(),
+  head_email: z.string().nullable(),
+  employee_count: z.number().int().min(0),
+});
+export type DepartmentHierarchy = z.infer<typeof DepartmentHierarchySchema>;
+
+// Employee audit log schemas
+export const EmployeeAuditLogSchema = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  employee_id: z.string().uuid(),
+  changed_by: z.string().uuid(),
+  action: AuditActionEnum,
+  field_name: z.string().nullable(),
+  old_value: z.any().nullable(), // JSONB
+  new_value: z.any().nullable(), // JSONB
+  change_reason: z.string().nullable(),
+  ip_address: z.string().nullable(),
+  user_agent: z.string().nullable(),
+  created_at: z.string(),
+});
+export type EmployeeAuditLog = z.infer<typeof EmployeeAuditLogSchema>;
+
+// Employee status history schemas
+export const EmployeeStatusHistorySchema = z.object({
+  id: z.string().uuid(),
+  employee_id: z.string().uuid(),
+  status: EmploymentStatusEnum,
+  effective_date: z.string(), // ISO date string
+  reason: z.string().nullable(),
+  created_by: z.string().uuid(),
+  created_at: z.string(),
+});
+export type EmployeeStatusHistory = z.infer<typeof EmployeeStatusHistorySchema>;
+
+export const EmployeeStatusHistoryCreateInputSchema = z.object({
+  employee_id: z.string().uuid(),
+  status: EmploymentStatusEnum,
+  effective_date: z.string(), // ISO date string
+  reason: z.string().optional(),
+  created_by: z.string().uuid(),
+});
+export type EmployeeStatusHistoryCreateInput = z.infer<typeof EmployeeStatusHistoryCreateInputSchema>;
 
 export const EmployeeManagerOptionSchema = z.object({
   id: z.string().uuid(),
@@ -289,12 +485,85 @@ export const EmployeeDetailResponseSchema = z.object({
   customFieldDefs: z.array(EmployeeCustomFieldDefSchema),
   documents: z.array(EmployeeDocumentSchema),
   managerOptions: z.array(EmployeeManagerOptionSchema),
+  department: DepartmentSchema.nullable(),
+  auditLog: z.array(EmployeeAuditLogSchema).optional(),
+  statusHistory: z.array(EmployeeStatusHistorySchema).optional(),
   permissions: z.object({
     canEdit: z.boolean(),
     canManageDocuments: z.boolean(),
+    canViewAuditLog: z.boolean(),
+    canViewCompensation: z.boolean(),
+    canEditCompensation: z.boolean(),
+    canViewSensitive: z.boolean(),
+    canEditSensitive: z.boolean(),
   }),
 });
 export type EmployeeDetailResponse = z.infer<typeof EmployeeDetailResponseSchema>;
+
+// Department list response
+export const DepartmentListResponseSchema = z.object({
+  departments: z.array(DepartmentSchema),
+  pagination: z.object({
+    page: z.number().int().min(1),
+    pageSize: z.number().int().min(1),
+    total: z.number().int().min(0),
+  }),
+});
+export type DepartmentListResponse = z.infer<typeof DepartmentListResponseSchema>;
+
+// Department hierarchy response
+export const DepartmentHierarchyResponseSchema = z.object({
+  departments: z.array(DepartmentHierarchySchema),
+});
+export type DepartmentHierarchyResponse = z.infer<typeof DepartmentHierarchyResponseSchema>;
+
+// Employee audit log response
+export const EmployeeAuditLogResponseSchema = z.object({
+  auditLog: z.array(EmployeeAuditLogSchema),
+  pagination: z.object({
+    page: z.number().int().min(1),
+    pageSize: z.number().int().min(1),
+    total: z.number().int().min(0),
+  }),
+});
+export type EmployeeAuditLogResponse = z.infer<typeof EmployeeAuditLogResponseSchema>;
+
+// CSV import schemas
+export const CSVImportPreviewSchema = z.object({
+  validRows: z.array(z.record(z.string(), z.any())),
+  invalidRows: z.array(z.object({
+    row: z.number().int().min(1),
+    data: z.record(z.string(), z.any()),
+    errors: z.array(z.string()),
+  })),
+  fieldMapping: z.record(z.string(), z.string()),
+  totalRows: z.number().int().min(0),
+});
+export type CSVImportPreview = z.infer<typeof CSVImportPreviewSchema>;
+
+export const CSVImportConfirmSchema = z.object({
+  validRows: z.array(z.record(z.string(), z.any())),
+  fieldMapping: z.record(z.string(), z.string()),
+});
+export type CSVImportConfirm = z.infer<typeof CSVImportConfirmSchema>;
+
+export const CSVExportRequestSchema = z.object({
+  tenantId: z.string().uuid(),
+  departmentId: z.string().uuid().optional(),
+  status: EmploymentStatusEnum.optional(),
+  includeSensitive: z.boolean().optional(),
+  format: z.enum(['csv', 'xlsx']).optional(),
+});
+export type CSVExportRequest = z.infer<typeof CSVExportRequestSchema>;
+
+export const CSVImportResultSchema = z.object({
+  success: z.boolean(),
+  created: z.number(),
+  updated: z.number(),
+  errors: z.array(z.string()),
+  warnings: z.array(z.string()),
+});
+export type CSVImportResult = z.infer<typeof CSVImportResultSchema>;
 
 // ---------------------------
 // Workflows
@@ -693,4 +962,40 @@ export {
   type TimeSummaryResponse,
   CalendarResponseSchema,
   type CalendarResponse,
+  // Manual Time Entry
+  ManualTimeEntryInputSchema,
+  type ManualTimeEntryInput,
+  TimeEntryUpdateInputSchema,
+  type TimeEntryUpdateInput,
+  TimeEntryApprovalInputSchema,
+  type TimeEntryApprovalInput,
+  // Overtime
+  OvertimeBalanceSchema,
+  type OvertimeBalance,
+  OvertimeRuleSchema,
+  type OvertimeRule,
+  OvertimeCalculationRequestSchema,
+  type OvertimeCalculationRequest,
+  // Time Entry Lists
+  TimeEntryListQuerySchema,
+  type TimeEntryListQuery,
+  TimeEntryListResponseSchema,
+  type TimeEntryListResponse,
+  // Manager Calendar
+  ManagerCalendarFilterSchema,
+  type ManagerCalendarFilter,
+  TimeExportRequestSchema,
+  type TimeExportRequest,
+  // Audit and Approvals
+  TimeEntryAuditSchema,
+  type TimeEntryAudit,
+  PendingApprovalSchema,
+  type PendingApproval,
+  PendingApprovalsResponseSchema,
+  type PendingApprovalsResponse,
+  // Team Summary
+  TeamTimeSummarySchema,
+  type TeamTimeSummary,
+  TeamTimeSummaryResponseSchema,
+  type TeamTimeSummaryResponse,
 } from "./time/schemas";
