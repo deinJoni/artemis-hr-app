@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
+    "vercel-build": "turbo run build --filter=backend...",
     "start": "turbo run start",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
