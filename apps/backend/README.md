@@ -25,4 +25,4 @@ Turbo ensures `@vibe/shared` finishes its `build` first (`^build` dependency), s
 2. Set the build command to `pnpm run vercel-build` (defined at the repo root).
 3. Add the required Supabase environment variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`) in the Vercel dashboard.
 
-The deployment entry point is `api/[[...route]].ts`, which adapts the existing Hono app to Vercel's Edge runtime. Vercel will list the function under that catch-all path in the deployment summary, but the handler still receives whichever URL path the client requested.
+The deployment entry point is `api/[[...route]].ts`, which adapts the existing Hono app to Vercel's Edge runtime. Vercel will list the function under that catch-all path in the deployment summary, but the handler still receives whichever URL path the client requested. If Vercel ever ignores the module runtime, the colocated `vercel.json` enforces the `edge` runtime for that route.
