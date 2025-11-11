@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useNavigate } from "react-router";
 import type { Route } from "./+types/workflows";
 import {
   WorkflowListResponseSchema,
@@ -17,7 +18,6 @@ import {
 } from "~/components/ui/card";
 import { Loader2, Plus } from "lucide-react";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -29,7 +29,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Workflows | Artemis" },
@@ -218,8 +217,13 @@ export default function Workflows({ loaderData }: Route.ComponentProps) {
 
 function WorkflowCard({ workflow }: { workflow: WorkflowListItem }) {
   const latest = workflow.latestVersion;
+  const navigate = useNavigate();
+
   return (
-    <Card className="border-border/70">
+    <Card 
+      className="border-border/70 cursor-pointer hover:border-primary/50 transition-colors"
+      onClick={() => navigate(`/workflows/${workflow.id}/builder`)}
+    >
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2">
           <span className="truncate">{workflow.name}</span>

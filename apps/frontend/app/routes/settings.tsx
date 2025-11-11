@@ -4,9 +4,7 @@ import { Button } from "~/components/ui/button";
 import { supabase } from "~/lib/supabase";
 import { TenantSchema, TenantUpdateInputSchema, type Tenant } from "@vibe/shared";
 import { useEmployeeFieldDefs } from "~/hooks/use-employee-field-defs";
-import type { EmployeeCustomFieldDef } from "@vibe/shared";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -18,7 +16,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Settings | Artemis" },
@@ -356,5 +353,4 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
     </div>
   );
 }
-
 

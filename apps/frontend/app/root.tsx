@@ -39,6 +39,9 @@ import {
 import { supabase } from "~/lib/supabase";
 import { cn } from "~/lib/utils";
 import "./app.css";
+import { ApiProvider } from "~/lib/api-context";
+import { ToastProvider } from "~/components/toast";
+import { setAuthCookie } from "~/lib/set-auth-cookie";
 
 const DEFAULT_BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -49,7 +52,20 @@ const DEFAULT_BACKEND_URL =
 
 const API_BASE_URL = DEFAULT_BACKEND_URL.replace(/\/$/, "");
 
-// eslint-disable-next-line react-refresh/only-export-components
+// Validate API base URL at module load time
+if (!API_BASE_URL || API_BASE_URL.trim() === "") {
+  const error = new Error(
+    "API base URL is not configured. Please set VITE_BACKEND_URL environment variable."
+  );
+  console.error("[Root] Missing API base URL:", error);
+  // In development, this will help catch configuration issues early
+  if (import.meta.env.DEV) {
+    console.error(
+      "[Root] Please set VITE_BACKEND_URL in your .env file or environment variables."
+    );
+  }
+}
+
 export const links = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
   {
@@ -122,7 +138,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
-      setSession(data.session ?? null);
+      const session = data.session ?? null;
+      setSession(session);
+      setAuthCookie(session?.access_token ?? null);
       setCheckingSession(false);
     });
 
@@ -131,6 +149,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!active) return;
       setSession(nextSession);
+      setAuthCookie(nextSession?.access_token ?? null);
       setCheckingSession(false);
     });
 
@@ -219,23 +238,31 @@ function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, location.pathname]);
 
-  if (checkingSession) {
-    return <div className="min-h-screen bg-background">{children}</div>;
-  }
+  const apiContextValue = React.useMemo(
+    () => ({
+      session,
+      setSession,
+      apiBaseUrl: API_BASE_URL,
+    }),
+    [session]
+  );
 
-  if (!session) {
-    const path = location.pathname;
-    const allowUnauthed = path === "/login" || path === "/register" || path === "/reset-password";
-    if (allowUnauthed) {
-      return <div className="min-h-screen bg-background">{children}</div>;
-    }
-    return <Navigate to="/login" replace />;
-  }
-
+  const path = location.pathname;
+  const allowUnauthed = path === "/login" || path === "/register" || path === "/reset-password";
   const isTenantReady = tenant?.setup_completed ?? false;
 
-  if (!isTenantReady) {
-    return (
+  let content: React.ReactNode;
+
+  if (checkingSession) {
+    content = <div className="min-h-screen bg-background">{children}</div>;
+  } else if (!session) {
+    content = allowUnauthed ? (
+      <div className="min-h-screen bg-background">{children}</div>
+    ) : (
+      <Navigate to="/login" replace />
+    );
+  } else if (!isTenantReady) {
+    content = (
       <div className="min-h-screen bg-background">
         {tenantStatus === "error" ? (
           <div className="border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
@@ -245,17 +272,23 @@ function AppShell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     );
+  } else {
+    content = (
+      <AuthenticatedLayout
+        session={session}
+        tenant={tenant!}
+        tenantError={tenantStatus === "error" ? tenantError : null}
+        pathname={location.pathname}
+      >
+        {children}
+      </AuthenticatedLayout>
+    );
   }
 
   return (
-    <AuthenticatedLayout
-      session={session}
-      tenant={tenant!}
-      tenantError={tenantStatus === "error" ? tenantError : null}
-      pathname={location.pathname}
-    >
-      {children}
-    </AuthenticatedLayout>
+    <ApiProvider value={apiContextValue}>
+      <ToastProvider>{content}</ToastProvider>
+    </ApiProvider>
   );
 }
 

@@ -1,13 +1,25 @@
 ## Local development
 
-Install dependencies with Bun and run the hot-reloading server:
+Install workspace dependencies and start the backend in watch mode:
 
 ```sh
-bun install
-bun run dev
+pnpm install
+pnpm --filter backend dev
 ```
 
-The server listens on `http://localhost:3000` (configured in `src/server.ts`).
+The dev script uses Bun under the hood (see `package.json`) and serves the API on `http://localhost:3000` as configured in `src/server.ts`. You can also run `bun install && bun run dev` directly from `apps/backend` if you prefer working without the workspace tooling.
+
+## API reference
+
+See [API_ENDPOINTS.md](./API_ENDPOINTS.md) for a complete catalogue of every `/api` endpoint, grouped by domain with request/response notes.
+
+### Route organization
+
+- `src/index.ts` wires middleware (auth, CORS, Supabase bindings) and mounts each domain router via `register*Routes` helpers.
+- Smaller domains expose their handlers from `src/routes/<domain>.ts`, while more complex modules (employees, performance, time management, etc.) live under `src/features/<domain>/router.ts` with supporting services and utilities beside them.
+- Shared helpers and middleware sit in `src/lib` and `src/middleware` (for example `require-user.ts` and `tenant-context.ts`).
+
+When adding a new domain, place its router where it fits best (`src/routes` for light modules, `src/features/<domain>` for heavier ones), export a `registerDomainRoutes` helper, and invoke it from `src/index.ts`.
 
 ## Building with Turbo
 

@@ -1,13 +1,15 @@
 import * as React from "react";
 import type { Route } from "./+types/time.overtime";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
-import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import { OvertimeWidget } from "~/components/time/overtime-widget";
-import { Clock, TrendingUp, Calendar, AlertTriangle } from "lucide-react";
-import type { OvertimeBalance } from "@vibe/shared";
+import { OvertimeRequestDialog } from "~/components/time/overtime-request-dialog";
+import { Clock, TrendingUp, Calendar, AlertTriangle, Plus } from "lucide-react";
+import type { OvertimeBalance, OvertimeRule, OvertimeRequest } from "@vibe/shared";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "~/lib/supabase";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -33,7 +35,9 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
   const [historicalBalances, setHistoricalBalances] = React.useState<OvertimeBalance[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [selectedPeriod, setSelectedPeriod] = React.useState<string>("current");
+  const [session, setSession] = React.useState<Session | null>(null);
+  const [defaultRule, setDefaultRule] = React.useState<OvertimeRule | null>(null);
+  const [requests, setRequests] = React.useState<OvertimeRequest[]>([]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -41,32 +45,50 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
       setLoading(true);
       setError(null);
       try {
-        const session = (await import("~/lib/supabase")).supabase.auth.getSession();
-        const { data: { session: authSession } } = await session;
-        
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+
         if (!authSession?.access_token) {
           throw new Error("Not authenticated");
         }
 
+        if (!cancelled) setSession(authSession);
+
         // Load current period balance
-        const currentRes = await fetch(`${apiBaseUrl}/api/overtime/balance`, {
-          headers: { Authorization: `Bearer ${authSession.access_token}` },
-        });
-        
+        const headers = { Authorization: `Bearer ${authSession.access_token}` };
+        const currentRes = await fetch(`${apiBaseUrl}/api/overtime/balance`, { headers });
+
         const currentData = await currentRes.json();
         if (!currentRes.ok) throw new Error(currentData.error || currentRes.statusText);
-        
+
         if (!cancelled) setCurrentBalance(currentData);
 
-        // Load historical balances (last 12 periods)
-        const historicalRes = await fetch(`${apiBaseUrl}/api/overtime/balance?period=historical`, {
-          headers: { Authorization: `Bearer ${authSession.access_token}` },
-        });
-        
-        const historicalData = await historicalRes.json();
-        if (!historicalRes.ok) throw new Error(historicalData.error || historicalRes.statusText);
-        
-        if (!cancelled) setHistoricalBalances(historicalData.balances || []);
+        // Load overtime rules to display current thresholds
+        try {
+          const rulesRes = await fetch(`${apiBaseUrl}/api/overtime/rules`, { headers });
+          const rulesData = await rulesRes.json().catch(() => ({}));
+          if (rulesRes.ok && Array.isArray(rulesData.rules)) {
+            const preferredRule =
+              rulesData.rules.find((rule: OvertimeRule) => rule.is_default) ??
+              rulesData.rules[0] ??
+              null;
+            if (!cancelled) setDefaultRule(preferredRule);
+          }
+        } catch (rulesError) {
+          console.warn("Failed to load overtime rules", rulesError);
+        }
+
+        // Load overtime requests
+        try {
+          const requestsRes = await fetch(`${apiBaseUrl}/api/overtime/requests?status=pending`, { headers });
+          const requestsData = await requestsRes.json().catch(() => ({}));
+          if (requestsRes.ok && Array.isArray(requestsData.requests)) {
+            if (!cancelled) setRequests(requestsData.requests);
+          }
+        } catch (requestsError) {
+          console.warn("Failed to load overtime requests", requestsError);
+        }
+
+        if (!cancelled) setHistoricalBalances([]);
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Unable to load overtime data");
       } finally {
@@ -77,21 +99,6 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
     return () => { cancelled = true };
   }, [apiBaseUrl]);
 
-  const getCurrentPeriod = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const week = getWeekNumber(now);
-    return `${year}-W${week.toString().padStart(2, '0')}`;
-  };
-
-  const getWeekNumber = (date: Date) => {
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    const dayNum = d.getUTCDay() || 7;
-    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  };
-
   const formatPeriod = (period: string) => {
     const match = period.match(/(\d{4})-W(\d{2})/);
     if (!match) return period;
@@ -100,25 +107,25 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
   };
 
   const getOvertimeTrend = () => {
-    if (historicalBalances.length < 2) return 'stable';
-    
+    if (historicalBalances.length < 2) return "stable";
+
     const recent = historicalBalances.slice(0, 4); // Last 4 periods
-    const totalOvertime = recent.map(b => b.overtime_hours + b.carry_over_hours);
-    
+    const totalOvertime = recent.map((b) => b.overtime_hours + b.carry_over_hours);
+
     const isIncreasing = totalOvertime.every((val, i) => i === 0 || val >= totalOvertime[i - 1]);
     const isDecreasing = totalOvertime.every((val, i) => i === 0 || val <= totalOvertime[i - 1]);
-    
-    if (isIncreasing) return 'increasing';
-    if (isDecreasing) return 'decreasing';
-    return 'stable';
+
+    if (isIncreasing) return "increasing";
+    if (isDecreasing) return "decreasing";
+    return "stable";
   };
 
   const getTrendIcon = () => {
     const trend = getOvertimeTrend();
     switch (trend) {
-      case 'increasing':
+      case "increasing":
         return <TrendingUp className="h-4 w-4 text-red-500" />;
-      case 'decreasing':
+      case "decreasing":
         return <TrendingUp className="h-4 w-4 text-green-500 rotate-180" />;
       default:
         return <Clock className="h-4 w-4 text-blue-500" />;
@@ -128,12 +135,12 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
   const getTrendText = () => {
     const trend = getOvertimeTrend();
     switch (trend) {
-      case 'increasing':
-        return 'Overtime is increasing';
-      case 'decreasing':
-        return 'Overtime is decreasing';
+      case "increasing":
+        return "Overtime is increasing";
+      case "decreasing":
+        return "Overtime is decreasing";
       default:
-        return 'Overtime is stable';
+        return "Overtime is stable";
     }
   };
 
@@ -159,6 +166,9 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
 
   const totalOvertime = currentBalance ? currentBalance.overtime_hours + currentBalance.carry_over_hours : 0;
   const regularHours = currentBalance?.regular_hours || 0;
+  const dailyThreshold = defaultRule?.daily_threshold ?? 8;
+  const weeklyThreshold = defaultRule?.weekly_threshold ?? 40;
+  const multiplier = defaultRule?.weekly_multiplier ?? 1.5;
 
   return (
     <div className="space-y-6">
@@ -170,6 +180,30 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <OvertimeRequestDialog
+            apiBaseUrl={apiBaseUrl}
+            session={session}
+            onSuccess={() => {
+              // Reload requests after creating one
+              if (session?.access_token) {
+                fetch(`${apiBaseUrl}/api/overtime/requests?status=pending`, {
+                  headers: { Authorization: `Bearer ${session.access_token}` },
+                })
+                  .then((res) => res.json())
+                  .then((data) => {
+                    if (Array.isArray(data.requests)) {
+                      setRequests(data.requests);
+                    }
+                  })
+                  .catch(() => {});
+              }
+            }}
+          >
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Request Overtime
+            </Button>
+          </OvertimeRequestDialog>
           <Badge variant="outline" className="flex items-center gap-1">
             {getTrendIcon()}
             {getTrendText()}
@@ -181,7 +215,7 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
         {/* Current Balance */}
         <OvertimeWidget
           apiBaseUrl={apiBaseUrl}
-          session={null}
+          session={session}
         />
 
         {/* Summary Stats */}
@@ -203,7 +237,7 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
                 <div className="text-sm text-muted-foreground">Overtime Hours</div>
               </div>
             </div>
-            
+
             {currentBalance && (
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -236,15 +270,15 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
           <CardContent className="space-y-3">
             <div className="text-sm">
               <div className="font-medium mb-2">Daily Threshold</div>
-              <div className="text-muted-foreground">8.0 hours per day</div>
+              <div className="text-muted-foreground">{dailyThreshold.toFixed(1)} hours per day</div>
             </div>
             <div className="text-sm">
               <div className="font-medium mb-2">Weekly Threshold</div>
-              <div className="text-muted-foreground">40.0 hours per week</div>
+              <div className="text-muted-foreground">{weeklyThreshold.toFixed(1)} hours per week</div>
             </div>
             <div className="text-sm">
               <div className="font-medium mb-2">Overtime Multiplier</div>
-              <div className="text-muted-foreground">1.5x for overtime hours</div>
+              <div className="text-muted-foreground">{multiplier.toFixed(2)}x for overtime hours</div>
             </div>
             <div className="text-xs text-muted-foreground mt-4">
               Overtime is calculated automatically based on your approved time entries.
@@ -252,6 +286,35 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Pending Overtime Requests */}
+      {requests.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending Overtime Requests</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {requests.map((request) => {
+                const startDate = new Date(request.start_date).toLocaleDateString();
+                const endDate = new Date(request.end_date).toLocaleDateString();
+                return (
+                  <div key={request.id} className="flex items-center justify-between p-3 rounded-lg border">
+                    <div className="flex-1">
+                      <div className="font-medium">{startDate} - {endDate}</div>
+                      <div className="text-sm text-muted-foreground mt-1">{request.reason}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Estimated: {request.estimated_hours}h
+                      </div>
+                    </div>
+                    <Badge variant="secondary">Pending</Badge>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Historical Data */}
       {historicalBalances.length > 0 && (

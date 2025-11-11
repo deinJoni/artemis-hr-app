@@ -36,7 +36,6 @@ const debugOnboarding = (label: string, details?: Record<string, unknown>) => {
     }
   }
 };
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Onboarding | Artemis" },
@@ -47,7 +46,6 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -445,14 +443,26 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                 className="space-y-4"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  const parse = OnboardingStepPayloadSchema.safeParse({
-                    step: 1,
+                  const trimmed = {
                     companyName: formData.companyName.trim(),
                     companyLocation: formData.companyLocation.trim(),
                     companySize: formData.companySize.trim(),
+                  };
+                  const parse = OnboardingStepPayloadSchema.safeParse({
+                    step: 1,
+                    ...trimmed,
                   });
                   if (!parse.success) {
-                    setStepError("Please complete all required fields.");
+                  const errors = parse.error.flatten().fieldErrors as Record<string, string[]>;
+                    if (errors.companyName) {
+                      setStepError("Please enter a company name.");
+                    } else if (errors.companyLocation) {
+                      setStepError("Please enter a company location.");
+                    } else if (errors.companySize) {
+                      setStepError("Please enter a company size.");
+                    } else {
+                      setStepError("Please complete all required fields.");
+                    }
                     return;
                   }
                   void submitStep(parse.data);
@@ -538,14 +548,26 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                 className="space-y-4"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  const parse = OnboardingStepPayloadSchema.safeParse({
-                    step: 2,
+                  const trimmed = {
                     contactName: formData.contactName.trim(),
                     contactEmail: formData.contactEmail.trim(),
                     contactPhone: formData.contactPhone.trim(),
+                  };
+                  const parse = OnboardingStepPayloadSchema.safeParse({
+                    step: 2,
+                    ...trimmed,
                   });
                   if (!parse.success) {
-                    setStepError("Please add valid contact information.");
+                    const errors = parse.error.flatten().fieldErrors as Record<string, string[]>;
+                    if (errors.contactName) {
+                      setStepError("Please enter a valid contact name.");
+                    } else if (errors.contactEmail) {
+                      setStepError("Please enter a valid email address.");
+                    } else if (errors.contactPhone) {
+                      setStepError("Please enter a valid phone number (at least 3 characters).");
+                    } else {
+                      setStepError("Please complete all required fields.");
+                    }
                     return;
                   }
                   void submitStep(parse.data);
@@ -632,13 +654,23 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                 className="space-y-4"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  const parse = OnboardingStepPayloadSchema.safeParse({
-                    step: 3,
+                  const trimmed = {
                     needsSummary: formData.needsSummary.trim(),
                     keyPriorities: formData.keyPriorities.trim(),
+                  };
+                  const parse = OnboardingStepPayloadSchema.safeParse({
+                    step: 3,
+                    ...trimmed,
                   });
                   if (!parse.success) {
-                    setStepError("Please describe your needs so we know where to focus.");
+                    const errors = parse.error.flatten().fieldErrors as Record<string, string[]>;
+                    if (errors.needsSummary) {
+                      setStepError("Please describe what you need most (at least 3 characters).");
+                    } else if (errors.keyPriorities) {
+                      setStepError("Please describe your key priorities (at least 3 characters).");
+                    } else {
+                      setStepError("Please complete all required fields.");
+                    }
                     return;
                   }
                   void submitStep(parse.data);

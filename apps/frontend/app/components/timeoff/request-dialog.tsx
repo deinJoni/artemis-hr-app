@@ -21,19 +21,50 @@ export function RequestTimeOffDialog({ apiBaseUrl, session, open, onOpenChange, 
   });
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [dateError, setDateError] = React.useState<string | null>(null);
 
   const daysRequested = React.useMemo(() => {
     const s = new Date(form.start_date);
     const e = new Date(form.end_date);
     if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
-    const ms = Math.max(e.getTime() - s.getTime(), 0);
+    if (e.getTime() < s.getTime()) return 0;
+    const ms = e.getTime() - s.getTime();
     return Math.floor(ms / (24 * 60 * 60 * 1000)) + 1;
+  }, [form.start_date, form.end_date]);
+
+  const isDateRangeValid = React.useMemo(() => {
+    const s = new Date(form.start_date);
+    const e = new Date(form.end_date);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return false;
+    return e.getTime() >= s.getTime();
+  }, [form.start_date, form.end_date]);
+
+  React.useEffect(() => {
+    if (form.start_date && form.end_date) {
+      const s = new Date(form.start_date);
+      const e = new Date(form.end_date);
+      if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime()) && e.getTime() < s.getTime()) {
+        setDateError("End date must be on or after start date");
+      } else {
+        setDateError(null);
+      }
+    } else {
+      setDateError(null);
+    }
   }, [form.start_date, form.end_date]);
 
   const submit = async () => {
     if (!session) return;
+    
+    // Validate date range
+    if (!isDateRangeValid) {
+      setDateError("End date must be on or after start date");
+      return;
+    }
+    
     setSubmitting(true);
     setError(null);
+    setDateError(null);
     try {
       const token = session.access_token;
       const res = await fetch(`${apiBaseUrl}/api/time-off/requests`, {
@@ -93,13 +124,25 @@ export function RequestTimeOffDialog({ apiBaseUrl, session, open, onOpenChange, 
             <label className="text-sm font-medium">End Date</label>
             <input
               type="date"
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              className={`h-9 rounded-md border px-2 text-sm ${
+                dateError
+                  ? "border-destructive bg-background"
+                  : "border-input bg-background"
+              }`}
               value={form.end_date}
               onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
             />
+            {dateError ? (
+              <p className="text-sm text-destructive">{dateError}</p>
+            ) : null}
           </div>
           <div className="grid gap-1 text-sm text-muted-foreground">
-            <span>Days requested: <span className="font-medium text-foreground">{daysRequested}</span></span>
+            <span>
+              Days requested:{" "}
+              <span className={`font-medium ${dateError ? "text-destructive" : "text-foreground"}`}>
+                {dateError ? "0 (invalid date range)" : daysRequested}
+              </span>
+            </span>
           </div>
           <div className="grid gap-2">
             <label className="text-sm font-medium">Note (optional)</label>
@@ -114,7 +157,9 @@ export function RequestTimeOffDialog({ apiBaseUrl, session, open, onOpenChange, 
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={submitting}>Submit Request</Button>
+            <Button onClick={submit} disabled={submitting || !isDateRangeValid}>
+              Submit Request
+            </Button>
           </div>
         </CardContent>
       </Card>

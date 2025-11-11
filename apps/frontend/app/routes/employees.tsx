@@ -9,10 +9,15 @@ import { supabase } from "~/lib/supabase";
 import { EmployeeCreateInputSchema, type Employee, type EmployeeCustomFieldDef } from "@vibe/shared";
 import { useEmployeeFieldDefs } from "~/hooks/use-employee-field-defs";
 import { cn } from "~/lib/utils";
-import { Loader2, Plus, RefreshCw, X, Filter, Download, Upload, Trash2, Edit } from "lucide-react";
-import { Input } from "~/components/ui/input";
+import { Loader2, Plus, RefreshCw, X, Filter, Download, Upload, Trash2, AlertCircle } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "~/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { Label } from "~/components/ui/label";
+import { Textarea } from "~/components/ui/textarea";
 import { ImportWizard } from "~/components/employees/import-wizard";
+import { useToast } from "~/components/toast";
+import type { BulkDeleteInput, BulkStatusUpdateInput, EmploymentStatus } from "@vibe/shared";
 
 const employmentTypes = ["Full-time", "Part-time", "Contractor", "Intern", "Seasonal"] as const;
 const salaryFrequencyOptions = ["per year", "per month", "per week", "per hour"] as const;
@@ -106,7 +111,6 @@ const sanitizeRecord = (record: Record<string, unknown>) =>
     })
   );
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -118,7 +122,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Employees | Artemis" },
@@ -144,17 +147,24 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
   
   // Filter states
   const [departmentFilter, setDepartmentFilter] = React.useState<string>("");
+  const [locationFilter, setLocationFilter] = React.useState<string>("");
   const [statusFilter, setStatusFilter] = React.useState<string>("");
   const [showFilters, setShowFilters] = React.useState(false);
   
   // Bulk action states
   const [selectedEmployees, setSelectedEmployees] = React.useState<Set<string>>(new Set());
-  const [bulkAction, setBulkAction] = React.useState<string>("");
-  const [showBulkActions, setShowBulkActions] = React.useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = React.useState(false);
+  const [bulkStatusDialogOpen, setBulkStatusDialogOpen] = React.useState(false);
+  const [bulkStatusValue, setBulkStatusValue] = React.useState<EmploymentStatus | "">("");
+  const [bulkStatusReason, setBulkStatusReason] = React.useState("");
+  const [bulkActionLoading, setBulkActionLoading] = React.useState(false);
+  const toast = useToast();
   
   // Department data for filter
   const [departments, setDepartments] = React.useState<Array<{ id: string; name: string }>>([]);
-  const [loadingDepartments, setLoadingDepartments] = React.useState(false);
+  
+  // Office locations data for filter
+  const [officeLocations, setOfficeLocations] = React.useState<Array<{ id: string; name: string }>>([]);
   
   // Import wizard state
   const [showImportWizard, setShowImportWizard] = React.useState(false);
@@ -173,7 +183,13 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     search,
     setSearch,
     refresh,
-  } = useEmployeesTable({ apiBaseUrl, tenantId });
+  } = useEmployeesTable({ 
+    apiBaseUrl, 
+    tenantId,
+    departmentId: departmentFilter || undefined,
+    officeLocationId: locationFilter || undefined,
+    status: statusFilter || undefined,
+  });
 
   const { fieldDefs, loading: defsLoading } = useEmployeeFieldDefs({ apiBaseUrl, tenantId });
 
@@ -214,7 +230,6 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     
     let cancelled = false;
     async function loadDepartments() {
-      setLoadingDepartments(true);
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData.session?.access_token;
@@ -232,11 +247,40 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
         if (!cancelled) {
           console.error("Failed to load departments:", e);
         }
-      } finally {
-        if (!cancelled) setLoadingDepartments(false);
       }
     }
     void loadDepartments();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, tenantId]);
+
+  // Load office locations for filter
+  React.useEffect(() => {
+    if (!tenantId) return;
+    
+    let cancelled = false;
+    async function loadLocations() {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) throw new Error("Missing access token");
+        
+        const locRes = await fetch(`${apiBaseUrl}/api/office-locations/${tenantId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const locJson = await locRes.json();
+        if (!locRes.ok) throw new Error(locJson.error || "Unable to load office locations");
+        
+        if (cancelled) return;
+        setOfficeLocations(locJson.locations || []);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          console.error("Failed to load office locations:", e);
+        }
+      }
+    }
+    void loadLocations();
     return () => {
       cancelled = true;
     };
@@ -262,7 +306,11 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      if (!response.ok) throw new Error("Export failed");
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        console.error("Export failed:", response.status, errorText);
+        throw new Error(`Export failed: ${errorText}`);
+      }
       
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -275,61 +323,153 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
       document.body.removeChild(a);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Export failed";
+      console.error("Export error:", error);
       setMutationError(message);
     }
   }, [apiBaseUrl, tenantId, departmentFilter, statusFilter]);
 
-  const handleBulkAction = React.useCallback(async (action: string) => {
+  const handleBulkExport = React.useCallback(async () => {
     if (!tenantId || selectedEmployees.size === 0) return;
+    
+    setBulkActionLoading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Missing access token");
+      
+      // Export selected employees
+      const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/export?employeeIds=${Array.from(selectedEmployees).join(',')}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!response.ok) {
+        const json = await response.json();
+        throw new Error(json.error || "Export failed");
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `selected_employees_export_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.showToast(`Successfully exported ${selectedEmployees.size} employee(s)`, "success");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Export failed";
+      toast.showToast(message, "error");
+      console.error("Export error:", error);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }, [apiBaseUrl, tenantId, selectedEmployees, toast]);
+
+  const handleBulkDelete = React.useCallback(async () => {
+    if (!tenantId || selectedEmployees.size === 0) return;
+    
+    setBulkActionLoading(true);
+    setBulkDeleteDialogOpen(false);
     
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Missing access token");
       
-      if (action === 'export') {
-        // Export selected employees
-        const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/export?employeeIds=${Array.from(selectedEmployees).join(',')}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        
-        if (!response.ok) throw new Error("Export failed");
-        
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `selected_employees_export_${new Date().toISOString().split('T')[0]}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      } else if (action === 'delete') {
-        if (!confirm(`Are you sure you want to delete ${selectedEmployees.size} employees? This action cannot be undone.`)) {
-          return;
-        }
-        
-        // Delete selected employees
-        for (const employeeId of selectedEmployees) {
-          const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/${employeeId}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          
-          if (!response.ok) {
-            const json = await response.json();
-            throw new Error(json.error || `Failed to delete employee ${employeeId}`);
-          }
-        }
-        
-        setSelectedEmployees(new Set());
-        await refresh();
+      const payload: BulkDeleteInput = {
+        employee_ids: Array.from(selectedEmployees),
+      };
+      
+      const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/bulk`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Bulk delete failed");
       }
+      
+      if (data.error_count > 0) {
+        const errorMsg = data.errors?.map((e: { employee_id: string; error: string }) => 
+          `Employee ${e.employee_id}: ${e.error}`
+        ).join(', ') || "Some deletions failed";
+        toast.showToast(`${data.success_count} deleted, ${data.error_count} failed: ${errorMsg}`, "error");
+      } else {
+        toast.showToast(`Successfully deleted ${data.success_count} employee(s)`, "success");
+      }
+      
+      setSelectedEmployees(new Set());
+      await refresh();
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Bulk action failed";
-      setMutationError(message);
+      const message = error instanceof Error ? error.message : "Bulk delete failed";
+      toast.showToast(message, "error");
+      console.error("Bulk delete error:", error);
+    } finally {
+      setBulkActionLoading(false);
     }
-  }, [apiBaseUrl, tenantId, selectedEmployees, refresh]);
+  }, [apiBaseUrl, tenantId, selectedEmployees, refresh, toast]);
+
+  const handleBulkStatusUpdate = React.useCallback(async () => {
+    if (!tenantId || selectedEmployees.size === 0 || !bulkStatusValue) return;
+    
+    setBulkActionLoading(true);
+    setBulkStatusDialogOpen(false);
+    
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Missing access token");
+      
+      const payload: BulkStatusUpdateInput = {
+        employee_ids: Array.from(selectedEmployees),
+        status: bulkStatusValue,
+        reason: bulkStatusReason.trim() || undefined,
+      };
+      
+      const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}/bulk/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Bulk status update failed");
+      }
+      
+      if (data.error_count > 0) {
+        const errorMsg = data.errors?.map((e: { employee_id: string; error: string }) => 
+          `Employee ${e.employee_id}: ${e.error}`
+        ).join(', ') || "Some updates failed";
+        toast.showToast(`${data.success_count} updated, ${data.error_count} failed: ${errorMsg}`, "error");
+      } else {
+        toast.showToast(`Successfully updated ${data.success_count} employee(s) to ${bulkStatusValue}`, "success");
+      }
+      
+      setSelectedEmployees(new Set());
+      setBulkStatusValue("");
+      setBulkStatusReason("");
+      await refresh();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Bulk status update failed";
+      toast.showToast(message, "error");
+      console.error("Bulk status update error:", error);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }, [apiBaseUrl, tenantId, selectedEmployees, bulkStatusValue, bulkStatusReason, refresh, toast]);
 
   const handleSelectEmployee = React.useCallback((employeeId: string, selected: boolean) => {
     setSelectedEmployees(prev => {
@@ -427,41 +567,141 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
       setCreating(true);
 
       try {
+        // Map employment type from form value to enum value
+        const employmentTypeMap: Record<string, "full_time" | "part_time" | "contract" | "intern" | "seasonal" | undefined> = {
+          "Full-time": "full_time",
+          "Part-time": "part_time",
+          "Contractor": "contract",
+          "Intern": "intern",
+          "Seasonal": "seasonal",
+        };
+
+        // Map salary frequency from form value to enum value
+        const salaryFrequencyMap: Record<string, "yearly" | "monthly" | "weekly" | "hourly" | undefined> = {
+          "per year": "yearly",
+          "per month": "monthly",
+          "per week": "weekly",
+          "per hour": "hourly",
+        };
+
+        // Extract job metadata fields (these go as top-level fields, not custom_fields)
+        // Debug: Log form state
+        console.log('Form state:', {
+          jobTitle: createForm.job.jobTitle,
+          jobTitleTrimmed: createForm.job.jobTitle.trim(),
+          department: createForm.job.department,
+          startDate: createForm.job.startDate,
+        });
+        
+        // Extract jobTitle - keep as string if not empty, otherwise undefined
+        // IMPORTANT: Use explicit check for empty string to ensure truthy check works
+        const jobTitleRaw = createForm.job.jobTitle.trim();
+        const jobTitle = jobTitleRaw.length > 0 ? jobTitleRaw : undefined;
+        // Debug: Log the actual form value
+        console.log('createForm.job.jobTitle:', createForm.job.jobTitle);
+        console.log('jobTitleRaw after trim:', jobTitleRaw);
+        console.log('jobTitle final value:', jobTitle);
+        console.log('jobTitle is truthy?', !!jobTitle);
+        const departmentId = createForm.job.department.trim() || undefined;
+        const startDate = createForm.job.startDate.trim() || undefined;
+        const employmentType = createForm.compensation.employmentType 
+          ? employmentTypeMap[createForm.compensation.employmentType] 
+          : undefined;
+        const salaryAmount = createForm.compensation.salary.trim() 
+          ? parseFloat(createForm.compensation.salary) 
+          : undefined;
+        const salaryCurrency = createForm.compensation.currency.trim() || undefined;
+        const salaryFrequency = createForm.compensation.salaryFrequency 
+          ? salaryFrequencyMap[createForm.compensation.salaryFrequency] 
+          : undefined;
+        
+        // Debug: Log extracted values
+        console.log('Extracted values:', {
+          jobTitle,
+          departmentId,
+          startDate,
+          employmentType,
+          salaryAmount,
+          salaryCurrency,
+          salaryFrequency,
+        });
+
+        // Keep only truly custom fields in custom_fields
         const derivedCustomFields = sanitizeRecord({
           personal_email: createForm.personal.personalEmail,
           phone_number: createForm.personal.phoneNumber,
           home_address: createForm.personal.homeAddress,
-          job_title: createForm.job.jobTitle,
-          department: createForm.job.department,
-          manager_id: createForm.job.managerId || undefined,
-          start_date: createForm.job.startDate,
-          employment_type: createForm.compensation.employmentType,
-          salary: createForm.compensation.salary,
-          salary_frequency: createForm.compensation.salaryFrequency,
-          salary_currency: createForm.compensation.currency,
           bank_details: createForm.compensation.bankDetails,
         });
 
         const dynamicCustomFields = sanitizeRecord(createForm.custom);
         const combinedCustomFields = { ...derivedCustomFields, ...dynamicCustomFields };
 
-        const payload = EmployeeCreateInputSchema.parse({
+        // Build payload with job metadata fields
+        // Include fields only when they have values (not empty strings or undefined)
+        const payloadData: Record<string, unknown> = {
           tenant_id: tenantId,
           email: createForm.job.workEmail.trim(),
           name: createForm.personal.fullName.trim(),
-          manager_id: createForm.job.managerId ? createForm.job.managerId : undefined,
-          custom_fields: Object.keys(combinedCustomFields).length > 0 ? combinedCustomFields : undefined,
-        });
+        };
+
+        // Add optional fields only when they have values
+        if (createForm.job.managerId) {
+          payloadData.manager_id = createForm.job.managerId;
+        }
+        if (jobTitle) {
+          payloadData.job_title = jobTitle;
+        }
+        if (departmentId) {
+          payloadData.department_id = departmentId;
+        }
+        if (startDate) {
+          payloadData.start_date = startDate;
+        }
+        if (employmentType) {
+          payloadData.employment_type = employmentType;
+        }
+        if (salaryAmount !== undefined && !isNaN(salaryAmount)) {
+          payloadData.salary_amount = salaryAmount;
+        }
+        if (salaryCurrency) {
+          payloadData.salary_currency = salaryCurrency;
+        }
+        if (salaryFrequency) {
+          payloadData.salary_frequency = salaryFrequency;
+        }
+        if (Object.keys(combinedCustomFields).length > 0) {
+          payloadData.custom_fields = combinedCustomFields;
+        }
+
+        // Debug: Log payload before Zod parsing
+        console.log('Payload before Zod parse:', payloadData);
+        
+        const payload = EmployeeCreateInputSchema.parse(payloadData);
+        
+        // Debug: Log payload after Zod parsing
+        console.log('Payload after Zod parse:', payload);
 
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData.session?.access_token;
         if (!token) throw new Error("Missing access token");
+        
+        // Debug: Log the final payload being sent
+        const finalPayloadString = JSON.stringify(payload);
+        console.log('Final payload string being sent:', finalPayloadString);
+        console.log('Payload object keys:', Object.keys(payload));
+        console.log('job_title in payload:', payload.job_title);
+        
         const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(payload),
+          body: finalPayloadString,
         });
-        if (!response.ok) throw new Error("Unable to create employee");
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const errorMessage = errorData?.error || response.statusText || "Unable to create employee";
+          throw new Error(errorMessage);
+        }
 
         setMutationError(null);
         resetWizardState();
@@ -629,9 +869,9 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               >
                 <Filter className="mr-2 h-4 w-4" />
                 Filters
-                {(departmentFilter || statusFilter) && (
+                {(departmentFilter || locationFilter || statusFilter) && (
                   <Badge variant="secondary" className="ml-2">
-                    {(departmentFilter ? 1 : 0) + (statusFilter ? 1 : 0)}
+                    {(departmentFilter ? 1 : 0) + (locationFilter ? 1 : 0) + (statusFilter ? 1 : 0)}
                   </Badge>
                 )}
               </Button>
@@ -645,27 +885,136 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => handleBulkAction('export')}
+                    onClick={handleBulkExport}
+                    disabled={bulkActionLoading}
                     className="h-10"
                   >
-                    <Download className="mr-2 h-4 w-4" />
+                    {bulkActionLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
                     Export Selected
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleBulkAction('delete')}
-                    className="h-10 text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete Selected
-                  </Button>
+                  <Dialog open={bulkStatusDialogOpen} onOpenChange={setBulkStatusDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={bulkActionLoading}
+                        className="h-10"
+                      >
+                        Update Status
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Update Status for {selectedEmployees.size} Employee(s)</DialogTitle>
+                        <DialogDescription>
+                          Select a new status for the selected employees.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="bulk-status">New Status *</Label>
+                          <Select
+                            value={bulkStatusValue}
+                            onValueChange={(value) => setBulkStatusValue(value as EmploymentStatus)}
+                          >
+                            <SelectTrigger id="bulk-status">
+                              <SelectValue placeholder="Select status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="on_leave">On Leave</SelectItem>
+                              <SelectItem value="terminated">Terminated</SelectItem>
+                              <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="bulk-status-reason">Reason (Optional)</Label>
+                          <Textarea
+                            id="bulk-status-reason"
+                            placeholder="Enter reason for status change..."
+                            value={bulkStatusReason}
+                            onChange={(e) => setBulkStatusReason(e.target.value)}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" onClick={() => setBulkStatusDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={handleBulkStatusUpdate}
+                            disabled={!bulkStatusValue || bulkActionLoading}
+                          >
+                            {bulkActionLoading ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Updating...
+                              </>
+                            ) : (
+                              "Update Status"
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={bulkActionLoading}
+                        className="h-10 text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete Selected
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Delete {selectedEmployees.size} Employee(s)?</DialogTitle>
+                        <DialogDescription>
+                          This action cannot be undone. This will permanently delete the selected employees.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <span>This action is irreversible.</span>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setBulkDeleteDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={handleBulkDelete}
+                          disabled={bulkActionLoading}
+                        >
+                          {bulkActionLoading ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Deleting...
+                            </>
+                          ) : (
+                            "Confirm Delete"
+                          )}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     onClick={() => setSelectedEmployees(new Set())}
+                    disabled={bulkActionLoading}
                     className="h-10"
                   >
                     Clear
@@ -696,6 +1045,22 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 </div>
                 
                 <div>
+                  <label className="text-sm font-medium mb-2 block">Office Location</label>
+                  <select
+                    value={locationFilter}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setLocationFilter(e.target.value)}
+                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  >
+                    <option value="">All Locations</option>
+                    {officeLocations.map(loc => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
                   <label className="text-sm font-medium mb-2 block">Status</label>
                   <select
                     value={statusFilter}
@@ -717,6 +1082,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                     size="sm"
                     onClick={() => {
                       setDepartmentFilter("");
+                      setLocationFilter("");
                       setStatusFilter("");
                     }}
                     className="h-10"
@@ -884,8 +1250,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                     />
                   </FieldGroup>
                   <FieldGroup label="Department">
-                    <input
-                      type="text"
+                    <select
                       value={createForm.job.department}
                       onChange={(event) =>
                         setCreateForm((state) => ({
@@ -894,7 +1259,14 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                         }))
                       }
                       className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
+                    >
+                      <option value="">Select department...</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
                   </FieldGroup>
                   <FieldGroup label="Manager">
                     <select

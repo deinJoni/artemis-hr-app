@@ -6,6 +6,10 @@ import { supabase } from "~/lib/supabase";
 type UseEmployeesTableOptions = {
   apiBaseUrl: string;
   tenantId: string | null;
+  departmentId?: string;
+  officeLocationId?: string;
+  status?: string;
+  employmentType?: string;
 };
 
 type UseEmployeesTableResult = {
@@ -31,6 +35,10 @@ const getDefaultSorting = (): SortingState => [{ id: "created_at", desc: true }]
 export function useEmployeesTable({
   apiBaseUrl,
   tenantId,
+  departmentId,
+  officeLocationId,
+  status,
+  employmentType,
 }: UseEmployeesTableOptions): UseEmployeesTableResult {
   const [data, setData] = React.useState<Employee[]>([]);
   const [total, setTotal] = React.useState(0);
@@ -94,6 +102,18 @@ export function useEmployeesTable({
       if (deferredSearch.trim().length > 0) {
         params.set("search", deferredSearch.trim());
       }
+      if (departmentId) {
+        params.set("departmentId", departmentId);
+      }
+      if (officeLocationId) {
+        params.set("officeLocationId", officeLocationId);
+      }
+      if (status) {
+        params.set("status", status);
+      }
+      if (employmentType) {
+        params.set("employmentType", employmentType);
+      }
 
       const response = await fetch(
         `${apiBaseUrl}/api/employees/${tenantId}?${params.toString()}`,
@@ -120,7 +140,7 @@ export function useEmployeesTable({
         setLoading(false);
       }
     }
-  }, [apiBaseUrl, deferredSearch, pageIndex, pageSize, sorting, tenantId]);
+  }, [apiBaseUrl, deferredSearch, pageIndex, pageSize, sorting, tenantId, departmentId, officeLocationId, status, employmentType]);
 
   React.useEffect(() => {
     void load();

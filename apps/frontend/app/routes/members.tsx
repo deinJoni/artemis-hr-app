@@ -21,7 +21,6 @@ const ROLE_LABELS: Record<Membership["role"], string> = {
 const ASSIGNABLE_ROLES: Membership["role"][] = ["employee", "manager", "people_ops", "admin"];
 const MEMBER_ROLE_OPTIONS: Membership["role"][] = ["owner", "admin", "people_ops", "manager", "employee"];
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -33,7 +32,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Members | Artemis" },

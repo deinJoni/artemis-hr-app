@@ -53,3 +53,73 @@ INSERT INTO public.employee_custom_field_defs (
   ('550e8400-e29b-41d4-a716-446655440403', '550e8400-e29b-41d4-a716-446655440000', 'Skills', 'skills', 'text', false, NULL, NOW()),
   ('550e8400-e29b-41d4-a716-446655440404', '550e8400-e29b-41d4-a716-446655440000', 'Certifications', 'certifications', 'text', false, NULL, NOW())
 ON CONFLICT (id) DO NOTHING;
+
+-- ==============================================
+-- LEAVE & ABSENCE MANAGEMENT SEED DATA
+-- ==============================================
+
+-- Insert sample leave types first
+INSERT INTO public.leave_types (
+  id, tenant_id, name, code, requires_approval, requires_certificate, 
+  allow_negative_balance, color, is_active, created_at, updated_at
+) VALUES
+  ('550e8400-e29b-41d4-a716-446655440100', '550e8400-e29b-41d4-a716-446655440000', 'Vacation', 'VACATION', true, false, false, '#3B82F6', true, NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440101', '550e8400-e29b-41d4-a716-446655440000', 'Sick Leave', 'SICK', false, true, true, '#EF4444', true, NOW(), NOW()),
+  ('550e8400-e29b-41d4-a716-446655440102', '550e8400-e29b-41d4-a716-446655440000', 'Personal Leave', 'PERSONAL', true, false, false, '#10B981', true, NOW(), NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- Insert sample leave balances for existing employees
+INSERT INTO public.leave_balances (
+  id, tenant_id, employee_id, leave_type_id, balance_days, used_ytd, 
+  period_start, period_end, notes, created_at, updated_at
+) VALUES
+  -- Sarah Chen (CEO) - Vacation balance
+  ('550e8400-e29b-41d4-a716-446655440500', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440010', 
+   '550e8400-e29b-41d4-a716-446655440100', 25.0, 5.0, '2025-01-01', '2025-12-31', 'Annual vacation allocation', NOW(), NOW()),
+  
+  -- Sarah Chen - Sick leave balance
+  ('550e8400-e29b-41d4-a716-446655440501', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440010', 
+   '550e8400-e29b-41d4-a716-446655440101', 10.0, 2.0, '2025-01-01', '2025-12-31', 'Annual sick leave allocation', NOW(), NOW()),
+  
+  -- Mike Rodriguez (CTO) - Vacation balance
+  ('550e8400-e29b-41d4-a716-446655440502', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440011', 
+   '550e8400-e29b-41d4-a716-446655440100', 25.0, 8.0, '2025-01-01', '2025-12-31', 'Annual vacation allocation', NOW(), NOW()),
+  
+  -- Mike Rodriguez - Sick leave balance
+  ('550e8400-e29b-41d4-a716-446655440503', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440011', 
+   '550e8400-e29b-41d4-a716-446655440101', 10.0, 1.0, '2025-01-01', '2025-12-31', 'Annual sick leave allocation', NOW(), NOW()),
+  
+  -- HR Admin - Vacation balance
+  ('550e8400-e29b-41d4-a716-446655440504', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440019', 
+   '550e8400-e29b-41d4-a716-446655440100', 25.0, 3.0, '2025-01-01', '2025-12-31', 'Annual vacation allocation', NOW(), NOW()),
+  
+  -- HR Admin - Sick leave balance
+  ('550e8400-e29b-41d4-a716-446655440505', '550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440019', 
+   '550e8400-e29b-41d4-a716-446655440101', 10.0, 0.0, '2025-01-01', '2025-12-31', 'Annual sick leave allocation', NOW(), NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- Insert sample 2025 US holidays
+INSERT INTO public.holiday_calendars (id, tenant_id, date, name, is_half_day, country, region, created_at) VALUES
+  ('550e8400-e29b-41d4-a716-446655440600', '550e8400-e29b-41d4-a716-446655440000', '2025-01-01', 'New Year''s Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440601', '550e8400-e29b-41d4-a716-446655440000', '2025-01-20', 'Martin Luther King Jr. Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440602', '550e8400-e29b-41d4-a716-446655440000', '2025-02-17', 'Presidents'' Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440603', '550e8400-e29b-41d4-a716-446655440000', '2025-05-26', 'Memorial Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440604', '550e8400-e29b-41d4-a716-446655440000', '2025-06-19', 'Juneteenth', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440605', '550e8400-e29b-41d4-a716-446655440000', '2025-07-04', 'Independence Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440606', '550e8400-e29b-41d4-a716-446655440000', '2025-09-01', 'Labor Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440607', '550e8400-e29b-41d4-a716-446655440000', '2025-10-13', 'Columbus Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440608', '550e8400-e29b-41d4-a716-446655440000', '2025-11-11', 'Veterans Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440609', '550e8400-e29b-41d4-a716-446655440000', '2025-11-27', 'Thanksgiving Day', false, 'US', 'California', NOW()),
+  ('550e8400-e29b-41d4-a716-446655440610', '550e8400-e29b-41d4-a716-446655440000', '2025-12-25', 'Christmas Day', false, 'US', 'California', NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- Insert additional leave types (migration already creates VACATION, SICK, PERSONAL)
+INSERT INTO public.leave_types (id, tenant_id, name, code, requires_approval, requires_certificate, allow_negative_balance, max_balance, color, is_active, created_at, updated_at) VALUES
+  ('550e8400-e29b-41d4-a716-446655440700', '550e8400-e29b-41d4-a716-446655440000', 'Bereavement', 'BEREAV', true, false, false, 3.0, '#6B7280', true, NOW(), NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- Note: Leave balances are created by the migration for existing employees
+-- No need to create additional balances in seed data
+
+-- Note: Leave requests require user authentication, so they are not included in seed data
+-- They will be created through the application when users are properly authenticated

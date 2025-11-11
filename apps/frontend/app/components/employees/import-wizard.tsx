@@ -2,9 +2,8 @@ import * as React from "react";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, RefreshCw } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
-import { Badge } from "~/components/ui/badge";
 import { cn } from "~/lib/utils";
-import type { CSVImportPreview, CSVImportConfirm, CSVImportResult } from "@vibe/shared";
+import type { CSVImportPreview, CSVImportResult } from "@vibe/shared";
 
 type ImportStep = "upload" | "mapping" | "preview" | "confirm" | "complete";
 
@@ -497,4 +496,3 @@ export function ImportWizard({ isOpen, onClose, onComplete, apiBaseUrl, tenantId
     </div>
   );
 }
-

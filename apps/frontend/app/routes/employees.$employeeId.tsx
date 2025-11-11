@@ -2,10 +2,25 @@ import * as React from "react";
 import type { Route } from "./+types/employees.$employeeId";
 import { useNavigate } from "react-router";
 import { format } from "date-fns";
-import { ArrowLeft, Edit, FileText, Loader2, RefreshCw, Upload, User, History, FolderOpen, Target } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  Edit,
+  FileText,
+  History,
+  Loader2,
+  RefreshCw,
+  Target,
+  Trash2,
+  Upload,
+  User,
+  FolderOpen,
+} from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Separator } from "~/components/ui/separator";
+import { Badge } from "~/components/ui/badge";
+import { Input } from "~/components/ui/input";
 import { supabase } from "~/lib/supabase";
 import { cn } from "~/lib/utils";
 import {
@@ -51,7 +66,6 @@ type DetailState = {
   error: string | null;
 };
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -62,7 +76,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({ params }: Route.MetaArgs) {
   return [
     { title: "Employee Detail | Artemis" },
@@ -90,7 +103,41 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
   const [activeTab, setActiveTab] = React.useState<"overview" | "documents" | "history" | "goals">("overview");
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [uploadPct, setUploadPct] = React.useState<number | null>(null);
+  const [documentError, setDocumentError] = React.useState<string | null>(null);
+  const [deletingDocId, setDeletingDocId] = React.useState<string | null>(null);
+  const [downloadingDocId, setDownloadingDocId] = React.useState<string | null>(null);
+  const [documentForm, setDocumentForm] = React.useState<{ description: string; category: string; expiryDate: string }>({
+    description: "",
+    category: "",
+    expiryDate: "",
+  });
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const documentCategories = React.useMemo(
+    () => [
+      { value: "", label: "No Category" },
+      { value: "contract", label: "Contract" },
+      { value: "certification", label: "Certification" },
+      { value: "id_document", label: "ID Document" },
+      { value: "performance", label: "Performance" },
+      { value: "medical", label: "Medical" },
+      { value: "other", label: "Other" },
+    ],
+    [],
+  );
+  const categoryLabelMap = React.useMemo(
+    () =>
+      documentCategories.reduce<Record<string, string>>((acc, option) => {
+        acc[option.value] = option.label;
+        return acc;
+      }, {}),
+    [documentCategories]
+  );
+  const formatDate = React.useCallback((value: string | null | undefined, pattern: string) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return format(parsed, pattern);
+  }, []);
 
   const loadDetail = React.useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -100,10 +147,10 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
         const token = session?.access_token;
         if (!token) throw new Error("Missing access token");
 
-        const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/current`, {
+        const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };
+        const tenantJson = (await tenantRes.json().catch(() => ({}))) as { id?: string; error?: string };
         if (!tenantRes.ok || typeof tenantJson.id !== "string") {
           throw new Error(tenantJson.error || "Unable to resolve tenant");
         }
@@ -229,6 +276,8 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
 
       setUploading(true);
       setUploadError(null);
+      setDocumentError(null);
+      setStatusMessage(null);
       setUploadPct(0);
       try {
         const session = (await supabase.auth.getSession()).data.session;
@@ -237,6 +286,16 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
 
         const formData = new FormData();
         formData.append("file", file);
+        const trimmedDescription = documentForm.description.trim();
+        if (trimmedDescription.length > 0) {
+          formData.append("description", trimmedDescription);
+        }
+        if (documentForm.category) {
+          formData.append("category", documentForm.category);
+        }
+        if (documentForm.expiryDate) {
+          formData.append("expiry_date", documentForm.expiryDate);
+        }
 
         const response = await fetch(`${apiBaseUrl}/api/employees/${detail.tenantId}/${detail.employee.id}/documents`, {
           method: "POST",
@@ -247,6 +306,7 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
         const json = await response.json().catch(() => ({} as any));
         if (!response.ok) throw new Error((json as any)?.error || "Unable to upload document");
         setStatusMessage("Document uploaded successfully.");
+        setDocumentForm({ description: "", category: "", expiryDate: "" });
         await loadDetail({ silent: true });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unable to upload document";
@@ -257,12 +317,81 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [detail, apiBaseUrl, loadDetail]
+    [detail, apiBaseUrl, loadDetail, documentForm]
   );
 
   const handleTriggerUpload = React.useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+
+  const handleDownloadDocument = React.useCallback(
+    async (document: EmployeeDocument) => {
+      if (!detail) return;
+      setDownloadingDocId(document.id);
+      setDocumentError(null);
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        const token = session?.access_token;
+        if (!token) throw new Error("Missing access token");
+
+        const response = await fetch(
+          `${apiBaseUrl}/api/employees/${detail.tenantId}/${detail.employee.id}/documents/${document.id}/download`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: "application/json",
+            },
+          }
+        );
+        const json = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+        if (!response.ok || typeof json.url !== "string") {
+          throw new Error(json.error || "Unable to create download link");
+        }
+        window.open(json.url, "_blank", "noopener");
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unable to download document";
+        setDocumentError(message);
+      } finally {
+        setDownloadingDocId(null);
+      }
+    },
+    [apiBaseUrl, detail]
+  );
+
+  const handleDeleteDocument = React.useCallback(
+    async (document: EmployeeDocument) => {
+      if (!detail) return;
+      setDeletingDocId(document.id);
+      setDocumentError(null);
+      setStatusMessage(null);
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        const token = session?.access_token;
+        if (!token) throw new Error("Missing access token");
+
+        const response = await fetch(
+          `${apiBaseUrl}/api/employees/${detail.tenantId}/${detail.employee.id}/documents/${document.id}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        const json = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) {
+          throw new Error(json.error || "Unable to delete document");
+        }
+        setStatusMessage("Document deleted successfully.");
+        await loadDetail({ silent: true });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unable to delete document";
+        setDocumentError(message);
+      } finally {
+        setDeletingDocId(null);
+      }
+    },
+    [apiBaseUrl, detail, loadDetail]
+  );
 
   const handleRefresh = React.useCallback(() => {
     void loadDetail();
@@ -506,91 +635,6 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                 </CardContent>
               </Card>
 
-              <Card className="border-border/60 bg-card/80 shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="text-xl">Documents</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Upload offer letters, payroll paperwork, or compliance acknowledgments.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      onChange={handleUpload}
-                      accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={handleTriggerUpload}
-                      disabled={!detail.permissions.canManageDocuments || uploading}
-                    >
-                      <Upload className={cn("mr-2 h-4 w-4", uploading && "animate-spin")} />
-                      Upload
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {uploadError ? (
-                    <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-                      {uploadError}
-                    </div>
-                  ) : null}
-                  <div className="space-y-3">
-                    {detail.documents.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
-                    ) : (
-                      detail.documents.map((doc) => (
-                        <div key={doc.id} className="flex items-center justify-between rounded-xl border border-border/50 bg-background/60 p-3">
-                          <div className="flex items-center gap-3">
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="text-sm font-medium text-foreground">{doc.file_name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatFileSize(doc.file_size)} • {format(new Date(doc.uploaded_at), "PPP p")}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => window.open(`${apiBaseUrl}/api/employees/${detail.tenantId}/${detail.employee.id}/documents/${doc.id}/download`, '_blank')}
-                            >
-                              Download
-                            </Button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                    {uploading ? (
-                      <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-background/60 p-3">
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        <div className="flex-1">
-                          <div className="text-sm text-foreground">Uploading file…</div>
-                          {uploadPct !== null ? (
-                            <div className="mt-1 h-1 w-full rounded-full bg-muted">
-                              <div
-                                className="h-1 rounded-full bg-primary transition-all duration-300"
-                                style={{ width: `${uploadPct}%` }}
-                              />
-                            </div>
-                          ) : null}
-                        </div>
-                        {uploadPct !== null ? (
-                          <div className="mt-3 text-xs text-muted-foreground">Uploading… {uploadPct}%</div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </CardContent>
-              </Card>
-
               {editing && detail.permissions.canEdit ? (
                 <Card className="border-border/60 bg-card/80 shadow-lg">
                   <CardHeader>
@@ -670,11 +714,185 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                   <CardTitle>Documents</CardTitle>
                   <p className="text-sm text-muted-foreground">Employee documents and files</p>
                 </CardHeader>
-                <CardContent>
-                  {/* Document upload and list will go here */}
-                  <div className="text-center py-8 text-muted-foreground">
-                    Document management coming soon...
-                  </div>
+                <CardContent className="space-y-6">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleUpload}
+                    disabled={!detail.permissions.canManageDocuments || uploading}
+                  />
+                  {detail.permissions.canManageDocuments ? (
+                    <div className="space-y-4 rounded-2xl border border-dashed border-border/70 bg-muted/20 p-4">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <Input
+                          value={documentForm.description}
+                          onChange={(event) =>
+                            setDocumentForm((prev) => ({ ...prev, description: event.target.value }))
+                          }
+                          placeholder="Add a description (optional)"
+                          disabled={uploading}
+                        />
+                        <select
+                          className="h-11 rounded-xl border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          value={documentForm.category}
+                          onChange={(event) =>
+                            setDocumentForm((prev) => ({ ...prev, category: event.target.value }))
+                          }
+                          disabled={uploading}
+                        >
+                          {documentCategories.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Input
+                          type="date"
+                          value={documentForm.expiryDate}
+                          onChange={(event) =>
+                            setDocumentForm((prev) => ({ ...prev, expiryDate: event.target.value }))
+                          }
+                          disabled={uploading}
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleTriggerUpload}
+                          disabled={uploading}
+                          className="rounded-xl px-4"
+                        >
+                          {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                          {uploading ? "Uploading..." : "Upload Document"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={
+                            uploading ||
+                            (documentForm.description.trim().length === 0 &&
+                              documentForm.category === "" &&
+                              documentForm.expiryDate === "")
+                          }
+                          onClick={() => setDocumentForm({ description: "", category: "", expiryDate: "" })}
+                        >
+                          Clear fields
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Supported formats: PDF, DOC/DOCX, images. Files are encrypted in storage.
+                        </p>
+                      </div>
+                      {uploadError ? (
+                        <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                          {uploadError}
+                        </div>
+                      ) : null}
+                      {uploadPct !== null ? (
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                          <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${uploadPct}%` }} />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {documentError ? (
+                    <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                      {documentError}
+                    </div>
+                  ) : null}
+
+                  {detail.documents.length > 0 ? (
+                    <div className="space-y-4">
+                      {detail.documents.map((doc) => {
+                        const uploadedAt = formatDate(doc.uploaded_at, "PPP p");
+                        const expiryAt = formatDate(doc.expiry_date ?? undefined, "PPP");
+                        const categoryLabel =
+                          doc.category && categoryLabelMap[doc.category]
+                            ? categoryLabelMap[doc.category]
+                            : doc.category ?? undefined;
+                        const downloading = downloadingDocId === doc.id;
+                        const deleting = deletingDocId === doc.id;
+                        return (
+                          <div
+                            key={doc.id}
+                            className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card/80 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="space-y-3">
+                              <div className="flex items-start gap-3">
+                                <FileText className="mt-1 h-5 w-5 text-primary" />
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-sm font-medium text-foreground">{doc.file_name}</p>
+                                    <Badge variant={doc.is_current ? "default" : "outline"}>
+                                      {doc.is_current ? "Current Version" : "Archived"}
+                                    </Badge>
+                                    <Badge variant="outline">v{doc.version}</Badge>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                    <span>{formatFileSize(doc.file_size)}</span>
+                                    {uploadedAt ? <span>• Uploaded {uploadedAt}</span> : null}
+                                    {expiryAt ? <span>• Expires {expiryAt}</span> : null}
+                                    {categoryLabel && categoryLabel !== "No Category" ? (
+                                      <span>• {categoryLabel}</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+                              {doc.description ? (
+                                <p className="text-sm text-muted-foreground">{doc.description}</p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDownloadDocument(doc)}
+                                disabled={downloading}
+                                className="rounded-xl"
+                              >
+                                {downloading ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="mr-2 h-4 w-4" />
+                                )}
+                                Download
+                              </Button>
+                              {detail.permissions.canManageDocuments ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteDocument(doc)}
+                                  disabled={deleting}
+                                  className="rounded-xl text-destructive hover:text-destructive"
+                                >
+                                  {deleting ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                  )}
+                                  Delete
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 py-8 text-center text-sm text-muted-foreground">
+                      No documents uploaded yet.
+                      {detail.permissions.canManageDocuments ? (
+                        <span className="mt-2 block text-xs text-muted-foreground/80">
+                          Use the upload controls above to add contracts, certifications, or other files.
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

@@ -1,8 +1,7 @@
-import * as React from "react";
+import React from "react";
 import type { Route } from "./+types/team-calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Badge } from "~/components/ui/badge";
 import type { CalendarEvent, CalendarResponse, ManagerCalendarFilter } from "@vibe/shared";
@@ -12,11 +11,10 @@ import {
   dateFnsLocalizer,
 } from "react-big-calendar";
 import type { View } from "react-big-calendar";
-import { format, parse, startOfWeek, getDay } from "date-fns";
-import { Download, Filter, Users, Calendar as CalendarIcon, Clock } from "lucide-react";
+import { format, parse, startOfWeek, getDay, startOfDay, endOfDay, startOfMonth, endOfMonth } from "date-fns";
+import { Download, Filter, Calendar as CalendarIcon, Clock, CalendarDays, Calendar, Grid3x3 } from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -51,7 +49,7 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [date, setDate] = React.useState<Date>(new Date());
-  const [view, setView] = React.useState<View>("month");
+  const [view, setView] = React.useState<View>("week");
   const [showFilters, setShowFilters] = React.useState(false);
   const [filters, setFilters] = React.useState<Partial<ManagerCalendarFilter>>({
     status: 'all',
@@ -75,7 +73,7 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
         if (res.ok && !cancelled) {
           setTeamMembers(data.employees || []);
         }
-      } catch (e) {
+      } catch {
         // Ignore errors for team members
       }
     }
@@ -93,13 +91,24 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
         const token = session?.access_token;
         if (!token) throw new Error("Missing access token");
         
-        // Compute visible range
-        const rangeStart = view === "week"
-          ? startOfWeek(date)
-          : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-        const rangeEnd = view === "week"
-          ? new Date(rangeStart.getTime() + 7 * 24 * 60 * 60 * 1000)
-          : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+        // Compute visible range based on view
+        let rangeStart: Date;
+        let rangeEnd: Date;
+        
+        if (view === "day") {
+          rangeStart = startOfDay(date);
+          rangeEnd = endOfDay(date);
+        } else if (view === "week") {
+          rangeStart = startOfWeek(date);
+          rangeEnd = new Date(rangeStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+        } else if (view === "month") {
+          rangeStart = startOfMonth(date);
+          rangeEnd = endOfMonth(date);
+        } else {
+          // Default to week
+          rangeStart = startOfWeek(date);
+          rangeEnd = new Date(rangeStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+        }
 
         // Build query parameters
         const params = new URLSearchParams({
@@ -149,13 +158,24 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
       const token = session?.access_token;
       if (!token) throw new Error("Missing access token");
 
-      // Compute visible range
-      const rangeStart = view === "week"
-        ? startOfWeek(date)
-        : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-      const rangeEnd = view === "week"
-        ? new Date(rangeStart.getTime() + 7 * 24 * 60 * 60 * 1000)
-        : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+      // Compute visible range based on view
+      let rangeStart: Date;
+      let rangeEnd: Date;
+      
+      if (view === "day") {
+        rangeStart = startOfDay(date);
+        rangeEnd = endOfDay(date);
+      } else if (view === "week") {
+        rangeStart = startOfWeek(date);
+        rangeEnd = new Date(rangeStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      } else if (view === "month") {
+        rangeStart = startOfMonth(date);
+        rangeEnd = endOfMonth(date);
+      } else {
+        // Default to week
+        rangeStart = startOfWeek(date);
+        rangeEnd = new Date(rangeStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      }
 
       // Build query parameters for CSV export
       const params = new URLSearchParams({
@@ -200,18 +220,90 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
     const ev = event.resource as CalendarEvent;
     if (ev.kind === 'time_off') {
       return {
-        backgroundColor: '#3b82f6',
-        color: 'white',
-        border: 'none',
+        style: {
+          backgroundColor: '#3b82f6',
+          color: 'white',
+          border: 'none',
+        }
       };
     } else {
       return {
-        backgroundColor: '#10b981',
-        color: 'white',
-        border: 'none',
+        style: {
+          backgroundColor: '#10b981',
+          color: 'white',
+          border: 'none',
+        }
       };
     }
   };
+
+  const renderEvent = React.useCallback(({ event }: { event: any }) => {
+    const resource = event.resource as (CalendarEvent & {
+      employeeName?: string;
+      approvalStatus?: string;
+      netDuration?: number;
+      breakMinutes?: number;
+      leaveType?: string;
+    });
+    const startDate = event.start instanceof Date ? event.start : new Date(event.start);
+    const endDate = event.end instanceof Date ? event.end : new Date(event.end);
+    const sameTime = endDate.getTime() === startDate.getTime();
+    const timeRange = sameTime ? format(startDate, "HH:mm") : `${format(startDate, "HH:mm")} - ${format(endDate, "HH:mm")}`;
+    const isTimeEntry = resource?.kind === "time_entry";
+    const approval = resource?.approvalStatus;
+    const approvalVariant: "outline" | "secondary" | "destructive" =
+      approval === "approved"
+        ? "outline"
+        : approval === "pending"
+          ? "secondary"
+          : "destructive";
+    const formatMinutes = (minutes: number) => {
+      if (!Number.isFinite(minutes) || minutes <= 0) return "0m";
+      const hrs = Math.floor(minutes / 60);
+      const mins = Math.round(minutes % 60);
+      return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    };
+
+    return (
+      <div className="space-y-1 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium truncate">
+            {resource?.employeeName || event.title}
+          </span>
+          {isTimeEntry && approval ? (
+            <Badge variant={approvalVariant} className="text-[10px] uppercase">
+              {approval}
+            </Badge>
+          ) : null}
+        </div>
+        {isTimeEntry ? (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] leading-tight">
+            <span>{timeRange}</span>
+            {sameTime ? (
+              <span className="flex items-center gap-1 text-amber-600 font-medium">
+                <Clock className="h-3 w-3" />
+                Active
+              </span>
+            ) : null}
+            {typeof resource?.netDuration === "number" ? (
+              <span className="text-muted-foreground">
+                Net {formatMinutes(resource.netDuration)}
+              </span>
+            ) : null}
+            {resource?.breakMinutes ? (
+              <span className="text-muted-foreground">
+                Break {formatMinutes(resource.breakMinutes)}
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <div className="text-muted-foreground text-[11px] leading-tight">
+            Time Off{resource?.leaveType ? ` (${resource.leaveType})` : ""}
+          </div>
+        )}
+      </div>
+    );
+  }, []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -223,6 +315,36 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
               Team Calendar
             </CardTitle>
             <div className="flex items-center gap-2">
+              {/* View Toggle */}
+              <div className="flex items-center gap-1 border rounded-md p-1">
+                <Button
+                  variant={view === "day" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setView("day")}
+                  className="h-8 px-3"
+                >
+                  <CalendarDays className="h-4 w-4 mr-1" />
+                  Day
+                </Button>
+                <Button
+                  variant={view === "week" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setView("week")}
+                  className="h-8 px-3"
+                >
+                  <Calendar className="h-4 w-4 mr-1" />
+                  Week
+                </Button>
+                <Button
+                  variant={view === "month" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setView("month")}
+                  className="h-8 px-3"
+                >
+                  <Grid3x3 className="h-4 w-4 mr-1" />
+                  Month
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -317,16 +439,7 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
               eventPropGetter={getEventStyle}
               style={{ height: '100%' }}
               components={{
-                event: ({ event }) => (
-                  <div className="text-xs p-1">
-                    <div className="font-medium truncate">{event.title}</div>
-                    {event.resource && (event.resource as any).employeeName && (
-                      <div className="text-xs opacity-75 truncate">
-                        {(event.resource as any).employeeName}
-                      </div>
-                    )}
-                  </div>
-                ),
+                event: renderEvent,
               }}
             />
           </div>
@@ -347,5 +460,3 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
     </div>
   );
 }
-
-

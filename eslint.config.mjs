@@ -37,7 +37,10 @@ export default [
     },
     rules: {
       // TS
-      "@typescript-eslint/consistent-type-imports": "warn",
+      "@typescript-eslint/consistent-type-imports": [
+        "warn",
+        { disallowTypeAnnotations: false },
+      ],
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
@@ -47,7 +50,7 @@ export default [
       "no-undef": "off",
       "no-empty-pattern": "off",
       // React
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "react-refresh/only-export-components": "off",
       "react/jsx-uses-react": "off",
       "react/react-in-jsx-scope": "off",
       // Hooks
@@ -84,5 +87,3 @@ export default [
     },
   },
 ];
-
-

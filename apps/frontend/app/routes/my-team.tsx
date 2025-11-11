@@ -7,7 +7,6 @@ import { supabase } from "~/lib/supabase";
 import type { TeamMemberSummary } from "@vibe/shared";
 import { formatDistanceToNow } from "date-fns";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -18,7 +17,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "My Team | Artemis" },

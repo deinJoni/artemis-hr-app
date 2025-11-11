@@ -1,4 +1,4 @@
-import * as React from "react";
+import React, { useMemo } from "react";
 import type { SortingState } from "@tanstack/react-table";
 import {
   flexRender,
@@ -71,12 +71,12 @@ export function EmployeeDataTable({
   selectedEmployees = new Set(),
   onSelectEmployee,
   onSelectAll,
-  departmentFilter,
-  statusFilter,
+  departmentFilter: _departmentFilter,
+  statusFilter: _statusFilter,
 }: EmployeeDataTableProps) {
   const pageCount = total > 0 ? Math.ceil(total / pageSize) : 1;
 
-  const columns = React.useMemo(() => buildEmployeeColumnsWithCustom(fieldDefs), [fieldDefs]);
+  const columns = useMemo(() => buildEmployeeColumnsWithCustom(fieldDefs), [fieldDefs]);
 
   const table = useReactTable({
     data,

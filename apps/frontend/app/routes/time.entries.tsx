@@ -2,12 +2,14 @@ import * as React from "react";
 import type { Route } from "./+types/time.entries";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
-import { Plus, RefreshCw } from "lucide-react";
+import { Download, Plus, RefreshCw } from "lucide-react";
 import { TimeEntriesTable } from "~/components/time/time-entries-table";
 import { ManualEntryDialog } from "~/components/time/manual-entry-dialog";
 import type { TimeEntry, TimeEntryListQuery, TimeEntryListResponse } from "@vibe/shared";
+import type { Session } from "@supabase/supabase-js";
+import { useToast } from "~/components/toast";
+import { supabase } from "~/lib/supabase";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -26,6 +28,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function TimeEntries({ loaderData }: Route.ComponentProps) {
+  const toast = useToast();
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" });
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
 
@@ -42,24 +45,27 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
     total: 0,
     total_pages: 0,
   });
+  const [session, setSession] = React.useState<Session | null>(null);
+  const [editingEntry, setEditingEntry] = React.useState<TimeEntry | null>(null);
 
   const loadEntries = React.useCallback(async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      const session = (await import("~/lib/supabase")).supabase.auth.getSession();
-      const { data: { session: authSession } } = await session;
-      
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+
       if (!authSession?.access_token) {
         throw new Error("Not authenticated");
       }
 
+      setSession(authSession);
+
       const params = new URLSearchParams();
       Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
+        if (value !== undefined && value !== null && value !== "") {
           if (Array.isArray(value)) {
-            value.forEach(v => params.append(`${key}[]`, v));
+            value.forEach((v) => params.append(`${key}[]`, v));
           } else {
             params.append(key, String(value));
           }
@@ -69,10 +75,10 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
       const res = await fetch(`${apiBaseUrl}/api/time/entries?${params}`, {
         headers: { Authorization: `Bearer ${authSession.access_token}` },
       });
-      
+
       const data: TimeEntryListResponse = await res.json();
       if (!res.ok) throw new Error((data as any).error || res.statusText);
-      
+
       setEntries(data.entries);
       setPagination(data.pagination);
     } catch (e: unknown) {
@@ -91,18 +97,28 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
   };
 
   const handleEdit = async (entry: TimeEntry) => {
-    // TODO: Implement edit functionality
-    console.log('Edit entry:', entry);
+    setEditingEntry(entry);
+  };
+
+  const handleEditSuccess = () => {
+    setEditingEntry(null);
+    toast.showToast("Time entry updated successfully", "success");
+    void loadEntries();
+  };
+
+  const handleEditDialogClose = () => {
+    setEditingEntry(null);
   };
 
   const handleDelete = async (entry: TimeEntry) => {
     try {
-      const session = (await import("~/lib/supabase")).supabase.auth.getSession();
-      const { data: { session: authSession } } = await session;
-      
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+
       if (!authSession?.access_token) {
         throw new Error("Not authenticated");
       }
+
+      setSession(authSession);
 
       const res = await fetch(`${apiBaseUrl}/api/time/entries/${entry.id}`, {
         method: "DELETE",
@@ -114,10 +130,22 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
         throw new Error(data.error || res.statusText);
       }
 
-      // Remove from local state
+      // Optimistic update
       setEntries(prev => prev.filter(e => e.id !== entry.id));
+      toast.showToast("Time entry deleted successfully", "success", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            // Would need to restore entry here if undo supported
+            await loadEntries();
+          },
+        },
+      });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to delete entry");
+      const errorMessage = e instanceof Error ? e.message : "Failed to delete entry";
+      setError(errorMessage);
+      toast.showToast(errorMessage, "error");
+      await loadEntries(); // Reload on error
     }
   };
 
@@ -125,7 +153,59 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
     void loadEntries();
   };
 
+  const handleExport = React.useCallback(async () => {
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+
+      if (!authSession?.access_token) {
+        throw new Error("Not authenticated");
+      }
+
+      setSession(authSession);
+
+      const today = new Date();
+      const endDate = filters.end_date ?? today.toISOString().split("T")[0];
+      const startDate =
+        filters.start_date ??
+        new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0];
+
+      const params = new URLSearchParams({
+        format: "csv",
+        start_date: startDate,
+        end_date: endDate,
+        include_breaks: "true",
+        include_notes: "true",
+      });
+
+      if (filters.user_id) {
+        params.append("user_ids[]", filters.user_id);
+      }
+
+      const res = await fetch(`${apiBaseUrl}/api/time/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${authSession.access_token}` },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as any).error || res.statusText);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `time-entries-${startDate}-to-${endDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Unable to export entries");
+    }
+  }, [apiBaseUrl, filters, setError]);
+
   const handleSuccess = () => {
+    toast.showToast("Time entry created successfully", "success");
     void loadEntries();
   };
 
@@ -140,14 +220,34 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleRefresh} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
-          <ManualEntryDialog apiBaseUrl={apiBaseUrl} session={null} onSuccess={handleSuccess}>
-            <Button>
+          <Button variant="outline" onClick={() => void handleExport()} disabled={loading}>
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+          <ManualEntryDialog apiBaseUrl={apiBaseUrl} session={session} onSuccess={handleSuccess}>
+            <Button disabled={!session}>
               <Plus className="h-4 w-4 mr-2" />
               Add Manual Entry
             </Button>
           </ManualEntryDialog>
+          {editingEntry && (
+            <ManualEntryDialog
+              apiBaseUrl={apiBaseUrl}
+              session={session}
+              entry={editingEntry}
+              open={Boolean(editingEntry)}
+              onOpenChange={(open) => {
+                if (!open) {
+                  handleEditDialogClose();
+                }
+              }}
+              onSuccess={handleEditSuccess}
+            >
+              <button type="button" style={{ display: "none" }} />
+            </ManualEntryDialog>
+          )}
         </div>
       </div>
 

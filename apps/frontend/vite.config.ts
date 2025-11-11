@@ -12,4 +12,11 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./app"),
     },
   },
+  server: {
+    watch: {
+      ignored: ["**/node_modules/**", "**/.git/**", "**/.turbo/**", "**/dist/**"],
+      usePolling: true,
+      interval: 500,
+    },
+  },
 });

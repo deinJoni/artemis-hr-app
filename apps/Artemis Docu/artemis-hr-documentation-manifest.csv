@@ -1,0 +1,15 @@
+File,Module,Phase,Priority,Status,Lines
+00-index-readme.md,Index & Project Overview,-,-,✅ Complete,~250
+01-core-hr-employee.md,Core HR & Employee Management,1,Critical,✅ Complete,~1100
+02-time-attendance.md,Time & Attendance,1,High,✅ Complete,~850
+03-leave-absence.md,Leave & Absence Management,1,Critical,✅ Complete,~950
+04-onboarding-offboard.md,Onboarding & Offboarding,1-2,High,✅ Complete,~900
+05-recruiting-ats.md,Recruiting & ATS,1,Critical,✅ Complete,~1300
+06-automation-workflow.md,Automation & Workflows,2,High,✅ Complete,~950
+07-self-service-comm.md,Self-Service & Communication,1,High,✅ Complete,~1000
+08-performance-goals.md,Performance & Goals,2,Medium,✅ Complete,~850
+09-documents-esig.md,Document Management & E-Signature,1,Critical,✅ Complete,~1050
+10-analytics-reporting.md,Analytics & Reporting,2,Medium,✅ Complete,~1000
+11-compliance-security.md,Compliance & Security,1,Critical,✅ Complete,~1100
+12-integrations-api.md,Integrations & API,1-2,High,✅ Complete,~1050
+artemis-hr-modules-overview.csv,Module Overview Table,-,-,✅ Complete,12 rows

@@ -35,7 +35,6 @@ const resolveSystemTheme = () => {
   return APP_THEME_OPTIONS[0] ?? "light"
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
 
 export function ThemeProvider({

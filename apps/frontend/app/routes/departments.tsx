@@ -1,7 +1,5 @@
 import * as React from "react";
 import type { Route } from "./+types/departments";
-import { useNavigate } from "react-router";
-import { format } from "date-fns";
 import { 
   Plus, 
   Building2, 
@@ -12,8 +10,7 @@ import {
   ChevronDown,
   Loader2,
   RefreshCw,
-  Search,
-  Filter
+  Search
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -40,7 +37,6 @@ type DepartmentState = {
   error: string | null;
 };
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -51,8 +47,7 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-export function meta({ params }: Route.MetaArgs) {
+export function meta(_: Route.MetaArgs) {
   return [
     { title: "Departments | Artemis" },
     { name: "description", content: "Manage organizational departments and hierarchy" },
@@ -62,8 +57,6 @@ export function meta({ params }: Route.MetaArgs) {
 export default function Departments({ loaderData }: Route.ComponentProps) {
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" }) as { baseUrl: string };
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
-  const navigate = useNavigate();
-
   const [state, setState] = React.useState<DepartmentState>({ 
     status: "idle", 
     departments: [], 
@@ -88,7 +81,7 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
       const token = session?.access_token;
       if (!token) throw new Error("Missing access token");
 
-      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/current`, {
+      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };
@@ -177,7 +170,7 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
       const token = session?.access_token;
       if (!token) throw new Error("Missing access token");
 
-      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/current`, {
+      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };
@@ -185,29 +178,36 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
         throw new Error(tenantJson.error || "Unable to resolve tenant");
       }
 
-      const response = await fetch(`${apiBaseUrl}/api/departments/${tenantJson.id}`, {
-        method: "POST",
+      const url = editingDept === "new"
+        ? `${apiBaseUrl}/api/departments/${tenantJson.id}`
+        : `${apiBaseUrl}/api/departments/${tenantJson.id}/${editingDept}`;
+      
+      const method = editingDept === "new" ? "POST" : "PUT";
+
+      const response = await fetch(url, {
+        method,
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          tenant_id: tenantJson.id,
           name: editForm.name.trim(),
-          description: editForm.description.trim() || null,
-          parent_id: editForm.parentId || null,
+          ...(editForm.description.trim() ? { description: editForm.description.trim() } : {}),
+          ...(editForm.parentId ? { parent_id: editForm.parentId } : {}),
         }),
       });
 
       const json = await response.json();
       if (!response.ok) {
-        throw new Error(json.error || "Failed to create department");
+        throw new Error(json.error || `Failed to ${editingDept === "new" ? "create" : "update"} department`);
       }
 
       setEditForm({ name: "", description: "", parentId: "" });
       setEditingDept(null);
       await loadDepartments();
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Failed to create department";
+      const message = error instanceof Error ? error.message : `Failed to ${editingDept === "new" ? "create" : "update"} department`;
       setError(message);
     } finally {
       setSaving(false);
@@ -224,7 +224,7 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
       const token = session?.access_token;
       if (!token) throw new Error("Missing access token");
 
-      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/current`, {
+      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };

@@ -1,27 +1,35 @@
 import * as React from "react";
 import type { Route } from "./+types/dashboard";
-import { BarChart3, BriefcaseBusiness, CalendarDays, Check, ChevronDown, UserPlus } from "lucide-react";
+import { BarChart3, BriefcaseBusiness, CalendarDays, UserPlus, Clock, Zap } from "lucide-react";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
+import { CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Link, useNavigate } from "react-router";
-import type { Session } from "@supabase/supabase-js";
-import { supabase } from "~/lib/supabase";
-import { type AccountBootstrapResponse, type Employee, type EmployeeListResponse } from "@vibe/shared";
 import { useTheme } from "~/hooks/use-theme";
-import { APP_THEME_OPTIONS, formatThemeName } from "~/lib/theme-options";
+import { APP_THEME_OPTIONS } from "~/lib/theme-options";
+import { supabase } from "~/lib/supabase";
 import { MyTimeWidget } from "~/components/my-time-widget";
 import { RequestTimeOffDialog } from "~/components/timeoff/request-dialog";
 import { ActionItems } from "~/components/action-items";
+import { LeaveBalanceWidget } from "~/components/leave/leave-balance-widget";
+import { PendingApprovalsWidget } from "~/components/leave/pending-approvals-widget";
+import { BentoGrid, BentoCard } from "~/components/bento-grid";
+import { FloatingActionButton } from "~/components/floating-action-button";
+import { QuickActionsMenu } from "~/components/quick-actions-menu";
+import { ManualEntryDialog } from "~/components/time/manual-entry-dialog";
+import { useKeyboardShortcuts } from "~/hooks/use-keyboard-shortcuts";
+import { useToast } from "~/components/toast";
+import { useDashboardAuth } from "~/features/dashboard/hooks/use-dashboard-auth";
+import { useDashboardTenant } from "~/features/dashboard/hooks/use-dashboard-tenant";
+import { useDashboardEmployees } from "~/features/dashboard/hooks/use-dashboard-employees";
+import { useClockStatus } from "~/features/dashboard/hooks/use-clock-status";
+import {
+  DashboardCenteredState,
+  DashboardErrorState,
+  DashboardThemeSelector,
+} from "~/features/dashboard/components/dashboard-states";
 
 const THEME_MENU_OPTIONS: string[] = ["system", ...APP_THEME_OPTIONS];
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -33,7 +41,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Dashboard | Artemis" },
@@ -45,152 +52,83 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
+  const toast = useToast();
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" }) as { baseUrl: string };
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
   const { theme: activeTheme, setTheme: setActiveTheme } = useTheme();
 
   const navigate = useNavigate();
-  const [session, setSession] = React.useState<Session | null>(null);
-  const [checking, setChecking] = React.useState(true);
-  const [tenantLoading, setTenantLoading] = React.useState(true);
-  const [tenantError, setTenantError] = React.useState<string | null>(null);
-  const [tenant, setTenant] = React.useState<AccountBootstrapResponse["tenant"] | null>(null);
+  const { session, checking } = useDashboardAuth(navigate);
+  const { tenant, profile, tenantLoading, tenantError } = useDashboardTenant({
+    apiBaseUrl,
+    navigate,
+    session,
+  });
+  const { employees, dataError } = useDashboardEmployees({
+    apiBaseUrl,
+    navigate,
+    session,
+    tenantId: tenant?.id,
+  });
+  const { isClockedIn, setIsClockedIn } = useClockStatus({
+    apiBaseUrl,
+    navigate,
+    session,
+  });
 
-  React.useEffect(() => {
-    let isMounted = true;
+  const [requestOpen, setRequestOpen] = React.useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = React.useState(false);
+  const [timeEntryOpen, setTimeEntryOpen] = React.useState(false);
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!isMounted) return;
-      const currentSession = data.session ?? null;
-      setSession(currentSession);
-      setChecking(false);
-      if (!currentSession) {
-        navigate("/login", { replace: true, state: { from: "/" } });
-      }
-    });
+  // Keyboard shortcut for Quick Actions (Cmd+K)
+  useKeyboardShortcuts({
+    enabled: true,
+    shortcuts: [
+      {
+        key: "k",
+        metaKey: true,
+        handler: () => {
+          setQuickActionsOpen(true);
+        },
+      },
+    ],
+  });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!isMounted) return;
-      if (nextSession) {
-        setSession(nextSession);
-      } else {
-        setSession(null);
-        navigate("/login", { replace: true, state: { from: "/" } });
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
-  }, [navigate]);
-
-  React.useEffect(() => {
+  const handleClockInOut = React.useCallback(async () => {
     if (!session) return;
-
-    let cancelled = false;
-    async function fetchTenant() {
-      setTenantLoading(true);
-      setTenantError(null);
-      try {
-        const token = session?.access_token;
-        if (!token) throw new Error("Missing access token");
-
-        const response = await fetch(`${apiBaseUrl}/api/account/bootstrap`, {
+    try {
+      const res = await fetch(
+        `${apiBaseUrl}/api/time/${isClockedIn ? "clock-out" : "clock-in"}`,
+        {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({}),
-        });
-        const payload = (await response.json().catch(() => ({}))) as Partial<AccountBootstrapResponse>;
-        if (!response.ok) {
-          const message =
-            (payload && typeof (payload as any).error === "string" && (payload as any).error) ||
-            response.statusText ||
-            "Unable to load workspace";
-          throw new Error(message);
+          headers: { Authorization: `Bearer ${session.access_token}` },
         }
-
-        if (cancelled) return;
-
-        const boot = payload as AccountBootstrapResponse;
-        if (!boot?.tenant || !boot?.profile) {
-          throw new Error("Unexpected response from the server");
-        }
-
-        if (!boot.tenant.setup_completed) {
-          navigate("/onboarding", { replace: true });
+      );
+      if (res.ok) {
+        setIsClockedIn(!isClockedIn);
+        toast.showToast(
+          `Successfully clocked ${isClockedIn ? "out" : "in"}`,
+          "success"
+        );
+      } else {
+        if (res.status === 401) {
+          await supabase.auth.signOut();
+          navigate("/login", { replace: true, state: { from: "/" } });
           return;
         }
-
-        setTenant(boot.tenant);
-      } catch (error: unknown) {
-        if (cancelled) return;
-        setTenantError(
-          error instanceof Error ? error.message : "Unable to load workspace details"
+        const data = await res.json().catch(() => ({}));
+        toast.showToast(
+          (data as any)?.error || "Failed to clock in/out",
+          "error"
         );
-      } finally {
-        if (!cancelled) {
-          setTenantLoading(false);
-        }
       }
+    } catch (error) {
+      toast.showToast(
+        error instanceof Error ? error.message : "Failed to clock in/out",
+        "error"
+      );
     }
-
-    void fetchTenant();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session, navigate, apiBaseUrl]);
-
-  const [employees, setEmployees] = React.useState<Employee[] | null>(null);
-  const [dataError, setDataError] = React.useState<string | null>(null);
-  const [requestOpen, setRequestOpen] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!session) return;
-    const token = session.access_token;
-    if (!token) return;
-    const tenantId = tenant?.id;
-    if (!tenantId) return;
-
-    let cancelled = false;
-    const headers = { Authorization: `Bearer ${token}` } as const;
-
-    async function loadEmployees() {
-      setDataError(null);
-      try {
-        const response = await fetch(`${apiBaseUrl}/api/employees/${tenantId}`, {
-          headers,
-        });
-
-        if (!response.ok) {
-          throw new Error("Unable to load employees");
-        }
-
-        const payload = (await response.json()) as EmployeeListResponse;
-        if (!cancelled) {
-          setEmployees(payload.employees ?? []);
-        }
-      } catch (error: unknown) {
-        if (!cancelled) {
-          setEmployees([]);
-          setDataError(
-            error instanceof Error ? error.message : "Unable to load workspace data"
-          );
-        }
-      }
-    }
-
-    void loadEmployees();
-    return () => {
-      cancelled = true;
-    };
-  }, [session, apiBaseUrl, tenant?.id]);
+  }, [session, apiBaseUrl, isClockedIn, toast, navigate, setIsClockedIn]);
 
   const headcountTrend = React.useMemo(() => {
     const current = Math.max(employees?.length ?? 3, 0);
@@ -255,7 +193,9 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
       )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Welcome back, Testi.</h1>
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+            Welcome back, {profile?.display_name ? profile.display_name.split(' ')[0] : 'there'}.
+          </h1>
           <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
             You have{" "}
             <span className="font-semibold text-primary">3</span>{" "}
@@ -264,38 +204,103 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
             new announcements.
           </p>
         </div>
-        <DashboardThemeSelector
-          currentTheme={activeTheme}
-          options={THEME_MENU_OPTIONS}
-          onSelect={setActiveTheme}
-        />
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setQuickActionsOpen(true)}
+            className="hidden sm:flex items-center gap-2"
+          >
+            <Zap className="h-4 w-4" />
+            Quick Actions
+            <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+              ⌘K
+            </kbd>
+          </Button>
+          <DashboardThemeSelector
+            currentTheme={activeTheme}
+            options={THEME_MENU_OPTIONS}
+            onSelect={setActiveTheme}
+          />
+        </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <ActionItems apiBaseUrl={apiBaseUrl} session={session} />
+      {/* Quick Actions Card */}
+      <BentoCard className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Zap className="h-5 w-5 text-primary" />
+              Quick Actions
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1">One-click access to common tasks</p>
+          </div>
         </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Button
+            onClick={handleClockInOut}
+            className="h-auto flex-col gap-2 py-4 bg-background hover:bg-accent"
+            variant="outline"
+          >
+            <Clock className="h-5 w-5" />
+            <span className="text-sm font-medium">{isClockedIn ? "Clock Out" : "Clock In"}</span>
+          </Button>
+          <Button
+            onClick={() => setRequestOpen(true)}
+            className="h-auto flex-col gap-2 py-4 bg-background hover:bg-accent"
+            variant="outline"
+          >
+            <CalendarDays className="h-5 w-5" />
+            <span className="text-sm font-medium">Request Time Off</span>
+          </Button>
+          <Button
+            onClick={() => setTimeEntryOpen(true)}
+            className="h-auto flex-col gap-2 py-4 bg-background hover:bg-accent"
+            variant="outline"
+          >
+            <Clock className="h-5 w-5" />
+            <span className="text-sm font-medium">Add Time Entry</span>
+          </Button>
+          <Button
+            onClick={() => navigate("/employees")}
+            className="h-auto flex-col gap-2 py-4 bg-background hover:bg-accent"
+            variant="outline"
+          >
+            <UserPlus className="h-5 w-5" />
+            <span className="text-sm font-medium">Add Employee</span>
+          </Button>
+        </div>
+      </BentoCard>
 
-        <MyTimeWidget 
-          apiBaseUrl={apiBaseUrl} 
-          session={session} 
-          onRequestTimeOff={() => setRequestOpen(true)}
-          onTimeEntrySuccess={() => {
-            // Refresh any relevant data if needed
-            console.log('Time entry created successfully');
-          }}
-        />
+      <BentoGrid>
+        <BentoCard span={2} className="lg:col-span-2">
+          <ActionItems apiBaseUrl={apiBaseUrl} session={session} />
+        </BentoCard>
 
-        <RequestTimeOffDialog
-          apiBaseUrl={apiBaseUrl}
-          session={session}
-          open={requestOpen}
-          onOpenChange={setRequestOpen}
-          onSubmitted={() => setRequestOpen(false)}
-        />
+        <BentoCard>
+          <MyTimeWidget 
+            apiBaseUrl={apiBaseUrl} 
+            session={session} 
+            onRequestTimeOff={() => setRequestOpen(true)}
+            onTimeEntrySuccess={() => {
+              // Refresh any relevant data if needed
+              console.log('Time entry created successfully');
+            }}
+          />
+        </BentoCard>
 
-        <Card className="group relative overflow-hidden border border-border/60 bg-muted/40">
-          <CardHeader className="space-y-1">
+        <BentoCard>
+          <LeaveBalanceWidget
+            onRequestLeave={() => setRequestOpen(true)}
+          />
+        </BentoCard>
+
+        <BentoCard>
+          <PendingApprovalsWidget />
+        </BentoCard>
+
+        <BentoCard className="group relative overflow-hidden">
+          <CardHeader className="space-y-1 pb-4">
             <CardTitle>Team Headcount</CardTitle>
             <CardDescription>Active employees</CardDescription>
           </CardHeader>
@@ -317,10 +322,10 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
               />
             </svg>
           </div>
-        </Card>
+        </BentoCard>
 
-        <Card className="border border-border/60 bg-muted/40">
-          <CardHeader className="space-y-1">
+        <BentoCard>
+          <CardHeader className="space-y-1 pb-4">
             <CardTitle>Upcoming Events</CardTitle>
             <CardDescription>Celebrate your team.</CardDescription>
           </CardHeader>
@@ -340,17 +345,17 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
               </li>
             </ul>
           </CardContent>
-        </Card>
+        </BentoCard>
 
-        <Card className="border border-border/60 bg-muted/40">
-          <CardHeader className="space-y-1">
+        <BentoCard span={2} className="lg:col-span-2">
+          <CardHeader className="space-y-1 pb-4">
             <CardTitle>Quick Links</CardTitle>
             <CardDescription>Jump into the tools you use most.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Link
-                to="/employees#new"
+                to="/employees"
                 className="flex flex-col items-center gap-2 rounded-lg border border-border/60 bg-background p-4 text-center text-sm font-semibold transition hover:border-primary hover:bg-muted"
               >
                 <UserPlus className="h-6 w-6 text-primary" />
@@ -364,14 +369,14 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
                 <span>View Company Calendar</span>
               </Link>
               <Link
-                to="/jobs/new"
+                to="/recruiting/jobs/new"
                 className="flex flex-col items-center gap-2 rounded-lg border border-border/60 bg-background p-4 text-center text-sm font-semibold transition hover:border-primary hover:bg-muted"
               >
                 <BriefcaseBusiness className="h-6 w-6 text-primary" />
                 <span>Post a New Job</span>
               </Link>
               <Link
-                to="/reports"
+                to="/leave/reports"
                 className="flex flex-col items-center gap-2 rounded-lg border border-border/60 bg-background p-4 text-center text-sm font-semibold transition hover:border-primary hover:bg-muted"
               >
                 <BarChart3 className="h-6 w-6 text-primary" />
@@ -379,98 +384,56 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
               </Link>
             </div>
           </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
+        </BentoCard>
+      </BentoGrid>
 
-type DashboardCenteredStateProps = {
-  message: string;
-  ariaLabel: string;
-};
-
-function DashboardCenteredState({ message, ariaLabel }: DashboardCenteredStateProps) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
-      <div
-        className="h-10 w-10 animate-spin rounded-full border-2 border-primary border-r-transparent"
-        aria-label={ariaLabel}
+      {/* Dialogs */}
+      <RequestTimeOffDialog
+        apiBaseUrl={apiBaseUrl}
+        session={session}
+        open={requestOpen}
+        onOpenChange={setRequestOpen}
+        onSubmitted={() => setRequestOpen(false)}
       />
-      <p className="text-sm text-muted-foreground">{message}</p>
+
+      <ManualEntryDialog
+        apiBaseUrl={apiBaseUrl}
+        session={session}
+        open={timeEntryOpen}
+        onOpenChange={setTimeEntryOpen}
+        onSuccess={() => {
+          setTimeEntryOpen(false);
+        }}
+      >
+        <button type="button" style={{ display: "none" }} />
+      </ManualEntryDialog>
+
+      {/* Quick Actions Menu */}
+      <QuickActionsMenu
+        open={quickActionsOpen}
+        onOpenChange={setQuickActionsOpen}
+        onClockInOut={handleClockInOut}
+        onRequestTimeOff={() => {
+          setQuickActionsOpen(false);
+          setRequestOpen(true);
+        }}
+        onAddTimeEntry={() => {
+          setQuickActionsOpen(false);
+          setTimeEntryOpen(true);
+        }}
+        onAddEmployee={() => {
+          setQuickActionsOpen(false);
+          navigate("/employees");
+        }}
+      />
+
+      {/* Floating Action Button */}
+      <FloatingActionButton
+        onClockInOut={handleClockInOut}
+        onRequestTimeOff={() => setRequestOpen(true)}
+        onAddTimeEntry={() => setTimeEntryOpen(true)}
+        onAddEmployee={() => navigate("/employees")}
+      />
     </div>
-  );
-}
-
-type DashboardErrorStateProps = {
-  message: string;
-};
-
-function DashboardErrorState({ message }: DashboardErrorStateProps) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
-      <div className="mx-auto max-w-md rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-        {message}
-      </div>
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <Button asChild>
-          <Link to="/onboarding">Return to onboarding</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/">Back to home</Link>
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-type DashboardThemeSelectorProps = {
-  currentTheme: string;
-  options: string[];
-  onSelect: (value: string) => void;
-};
-
-function DashboardThemeSelector({
-  currentTheme,
-  options,
-  onSelect,
-}: DashboardThemeSelectorProps) {
-  if (!options.length) return null;
-
-  const getLabel = (value: string) =>
-    value === "system" ? "System (Auto)" : formatThemeName(value);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          aria-label="Select theme"
-          variant="outline"
-          size="sm"
-          className="inline-flex min-w-[11rem] justify-between gap-2"
-        >
-          <span className="text-sm font-semibold">Theme</span>
-          <span className="text-sm text-muted-foreground">{getLabel(currentTheme)}</span>
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        {options.map((option) => {
-          const isActive = option === currentTheme;
-          return (
-            <DropdownMenuItem
-              key={option}
-              onClick={() => {
-                if (!isActive) onSelect(option);
-              }}
-              className="flex items-center gap-2 text-sm"
-            >
-              <Check className={`h-3.5 w-3.5 ${isActive ? "opacity-100" : "opacity-0"}`} />
-              <span>{getLabel(option)}</span>
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

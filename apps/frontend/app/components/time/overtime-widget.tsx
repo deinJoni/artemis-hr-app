@@ -43,7 +43,7 @@ export function OvertimeWidget({ apiBaseUrl, session, onViewDetails }: OvertimeW
     }
     void load();
     return () => { cancelled = true };
-  }, [session?.access_token, apiBaseUrl]);
+  }, [session, session?.access_token, apiBaseUrl]);
 
   const getOvertimeStatus = () => {
     if (!balance) return { status: 'unknown', color: 'gray' };

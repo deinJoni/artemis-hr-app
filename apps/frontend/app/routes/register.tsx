@@ -18,7 +18,6 @@ type MessageState =
   | { kind: "success"; text: string }
   | null;
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Register | Artemis" },

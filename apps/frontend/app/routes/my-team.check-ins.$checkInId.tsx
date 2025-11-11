@@ -8,7 +8,6 @@ import { supabase } from "~/lib/supabase";
 import type { CheckIn, Goal } from "@vibe/shared";
 import { format, parseISO } from "date-fns";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -19,7 +18,6 @@ export async function loader() {
   return { baseUrl };
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function meta({ params }: Route.MetaArgs) {
   return [
     { title: "Check-in | Artemis" },
