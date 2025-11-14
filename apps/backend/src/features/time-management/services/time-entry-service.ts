@@ -39,7 +39,8 @@ export async function checkTimeEntryOverlap(
 
   if (error) throw error
 
-  return (data || []).some((entry) => {
+  type TimeEntrySelect = { id: string; clock_in_at: string; clock_out_at: string | null }
+  return (data || []).some((entry: TimeEntrySelect) => {
     const entryStart = new Date(entry.clock_in_at)
     const entryEnd = entry.clock_out_at ? new Date(entry.clock_out_at) : new Date()
 

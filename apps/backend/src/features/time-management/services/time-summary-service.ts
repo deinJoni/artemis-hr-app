@@ -5,7 +5,7 @@ import {
   type TimeSummaryResponse,
 } from '@vibe/shared'
 
-import type { Database } from '@database.types.ts'
+import type { Database, Json } from '@database.types.ts'
 import { endOfWeekUtc, startOfWeekUtc } from '../utils/time'
 
 type GetTimeSummaryParams = {
@@ -37,9 +37,19 @@ export async function getTimeSummary({
     throw new Error(entries.error.message)
   }
 
+  type TimeEntrySelect = {
+    id: string
+    tenant_id: string
+    user_id: string
+    clock_in_at: string
+    clock_out_at: string | null
+    duration_minutes: number | null
+    location: Json
+    created_at: string
+  }
   const minutes = (entries.data ?? [])
-    .map((e) => (typeof e.duration_minutes === 'number' ? e.duration_minutes : 0))
-    .reduce((a, b) => a + b, 0)
+    .map((e: TimeEntrySelect) => (typeof e.duration_minutes === 'number' ? e.duration_minutes : 0))
+    .reduce((a: number, b: number) => a + b, 0)
 
   const activeOpen = await supabase
     .from('time_entries')

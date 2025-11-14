@@ -1,4 +1,4 @@
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 import {
   GoalKeyResultSchema,
@@ -11,6 +11,9 @@ import {
 
 import type { Database } from '@database.types.ts'
 import { getEmployeeForUser, hasPermission } from '../../../lib/tenant-context'
+
+// Get User type from auth.getUser response (non-null since we check for user existence)
+type User = NonNullable<Awaited<ReturnType<SupabaseClient<Database>['auth']['getUser']>>['data']['user']>
 
 type GoalRow = Database['public']['Tables']['goals']['Row']
 type GoalKeyResultRow = Database['public']['Tables']['goal_key_results']['Row']
