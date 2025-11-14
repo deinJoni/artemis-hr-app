@@ -1,7 +1,1 @@
-{
-  "functions": {
-    "api/[[...route]].ts": {
-      "runtime": "edge"
-    }
-  }
-}
+{}
