@@ -9,6 +9,7 @@ import { Clock, TrendingUp, Calendar, AlertTriangle, Plus } from "lucide-react";
 import type { OvertimeBalance, OvertimeRule, OvertimeRequest } from "@vibe/shared";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "~/lib/supabase";
+import { useTranslation } from "~/lib/i18n";
 
 export async function loader() {
   const baseUrl =
@@ -28,6 +29,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
+  const { t } = useTranslation();
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" });
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
 
@@ -90,7 +92,7 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
 
         if (!cancelled) setHistoricalBalances([]);
       } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Unable to load overtime data");
+        if (!cancelled) setError(e instanceof Error ? e.message : t("errors.unableToLoad"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -174,9 +176,9 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Overtime Tracking</h1>
+          <h1 className="text-3xl font-bold">{t("time.overtime")}</h1>
           <p className="text-muted-foreground">
-            Monitor your overtime balance and work patterns
+            {t("time.overtime")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -201,7 +203,7 @@ export default function TimeOvertime({ loaderData }: Route.ComponentProps) {
           >
             <Button>
               <Plus className="h-4 w-4 mr-2" />
-              Request Overtime
+              {t("time.requestOvertime")}
             </Button>
           </OvertimeRequestDialog>
           <Badge variant="outline" className="flex items-center gap-1">

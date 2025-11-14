@@ -23,7 +23,7 @@ type ProfileSummary = Pick<
 >
 
 const TENANT_SELECT_COLUMNS =
-  'id, name, created_at, company_name, company_location, company_size, contact_name, contact_email, contact_phone, needs_summary, key_priorities, onboarding_step, setup_completed, activated_at'
+  'id, name, created_at, company_name, company_size, language, onboarding_step, setup_completed, activated_at'
 
 const TOTAL_ONBOARDING_STEPS = 3
 const TENANT_NAME_MAX_LENGTH = 120
@@ -41,19 +41,20 @@ const toEmailOrNull = (value: string | null | undefined) => {
 }
 
 const normalizeTenantForResponse = (
-  tenant: Database['public']['Tables']['tenants']['Row'],
+  tenant: Partial<Database['public']['Tables']['tenants']['Row']> & {
+    id: string
+    name: string
+    created_at: string
+    onboarding_step: number | string
+    setup_completed: boolean
+  },
 ): Tenant => ({
   id: tenant.id,
   name: tenant.name,
   created_at: tenant.created_at,
   company_name: toNullableString(tenant.company_name),
-  company_location: toNullableString(tenant.company_location),
   company_size: toNullableString(tenant.company_size),
-  contact_name: toNullableString(tenant.contact_name),
-  contact_email: toEmailOrNull(tenant.contact_email),
-  contact_phone: toNullableString(tenant.contact_phone),
-  needs_summary: toNullableString(tenant.needs_summary),
-  key_priorities: toNullableString(tenant.key_priorities),
+  language: toNullableString(tenant.language),
   onboarding_step:
     typeof tenant.onboarding_step === 'number'
       ? tenant.onboarding_step
@@ -169,7 +170,18 @@ const resolveTenant = async (
     throw new Error(createdTenant.error?.message ?? 'Unable to resolve tenant')
   }
 
-  return createdTenant.data as Tenant
+  // Fetch the full tenant record including language
+  const fullTenant = await supabaseAdmin
+    .from('tenants')
+    .select(TENANT_SELECT_COLUMNS)
+    .eq('id', createdTenant.data.id)
+    .single()
+
+  if (fullTenant.error || !fullTenant.data) {
+    throw new Error(fullTenant.error?.message ?? 'Unable to fetch tenant')
+  }
+
+  return fullTenant.data
 }
 
 export const registerTenantRoutes = (app: Hono<Env>) => {
@@ -239,7 +251,16 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
       for (let attempt = 0; attempt < 5; attempt++) {
         const tenantCreation = await supabase.rpc('app_create_tenant', { p_name: nextName })
         if (!tenantCreation.error && tenantCreation.data) {
-          return tenantCreation.data as Tenant
+          // Fetch the full tenant record including language
+          const fullTenant = await supabaseAdmin
+            .from('tenants')
+            .select(TENANT_SELECT_COLUMNS)
+            .eq('id', tenantCreation.data.id)
+            .single()
+          
+          if (!fullTenant.error && fullTenant.data) {
+            return fullTenant.data
+          }
         }
         if (tenantCreation.error?.code === '23505') {
           const suffix = generateTenantSuffix()
@@ -349,15 +370,53 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
 
     if (payload.step === 1) {
       updateData.company_name = payload.companyName
-      updateData.company_location = payload.companyLocation
       updateData.company_size = payload.companySize
+      updateData.language = payload.language
     } else if (payload.step === 2) {
-      updateData.contact_name = payload.contactName
-      updateData.contact_email = payload.contactEmail
-      updateData.contact_phone = payload.contactPhone
+      // Create employee record in step 2
+      const employeeName = `${payload.firstName} ${payload.lastName}`
+      
+      // Check if employee already exists
+      const existingEmployee = await supabase
+        .from('employees')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('email', payload.companyEmail)
+        .maybeSingle()
+
+      if (existingEmployee.error && existingEmployee.error.code !== 'PGRST116') {
+        console.error('Error checking for existing employee:', existingEmployee.error.message)
+      } else if (!existingEmployee.data) {
+        // Create employee record
+        const employeeInsert = await supabaseAdmin
+          .from('employees')
+          .insert({
+            tenant_id: tenantId,
+            user_id: user.id,
+            email: payload.companyEmail,
+            name: employeeName,
+            job_title: payload.rolePosition,
+            status: 'active',
+            start_date: new Date().toISOString().split('T')[0],
+          })
+          .select('id')
+          .single()
+
+        if (employeeInsert.error) {
+          console.error('Error creating employee record during onboarding:', employeeInsert.error.message)
+          // Don't fail onboarding - employee can be created manually later
+        }
+      } else {
+        // Update existing employee with job_title if needed
+        await supabaseAdmin
+          .from('employees')
+          .update({
+            job_title: payload.rolePosition,
+            name: employeeName,
+          })
+          .eq('id', existingEmployee.data.id)
+      }
     } else if (payload.step === 3) {
-      updateData.needs_summary = payload.needsSummary
-      updateData.key_priorities = payload.keyPriorities
       updateData.setup_completed = true
       if (!tenant.data?.activated_at) {
         updateData.activated_at = new Date().toISOString()
@@ -383,155 +442,130 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
       return c.json({ error: updated.error?.message ?? 'Unable to save onboarding data' }, 400)
     }
 
-    // Create employee record when onboarding completes (step 3)
+    // Create default leave types when onboarding completes (step 3)
     const isCompletingOnboarding = payload.step === 3 && updated.data.setup_completed && !tenant.data?.setup_completed
     if (isCompletingOnboarding) {
-      // Check if employee already exists
-      const existingEmployee = await supabase
+      // Find the employee created in step 2
+      const employee = await supabase
         .from('employees')
         .select('id')
         .eq('tenant_id', tenantId)
         .eq('user_id', user.id)
         .maybeSingle()
 
-      if (existingEmployee.error && existingEmployee.error.code !== 'PGRST116') {
-        // Log error but don't fail onboarding
-        console.error('Error checking for existing employee:', existingEmployee.error.message)
-      } else if (!existingEmployee.data) {
-        // Get profile to get display_name
-        const profile = await supabase
-          .from('profiles')
-          .select('display_name')
-          .eq('user_id', user.id)
-          .eq('tenant_id', tenantId)
-          .maybeSingle()
+      if (employee.data) {
+        // Create default leave types for tenant if they don't exist
+        const defaultLeaveTypes = [
+          { code: 'VACATION', name: 'Vacation', requires_approval: true, requires_certificate: false, allow_negative_balance: false, color: '#3B82F6' },
+          { code: 'SICK', name: 'Sick Leave', requires_approval: false, requires_certificate: true, allow_negative_balance: true, color: '#EF4444' },
+          { code: 'PERSONAL', name: 'Personal Leave', requires_approval: true, requires_certificate: false, allow_negative_balance: false, color: '#10B981' },
+        ]
 
-        const displayName = profile.data?.display_name || user.email?.split('@')[0] || 'Employee'
-        const userEmail = user.email
-
-        if (!userEmail) {
-          console.error('Cannot create employee: user email is missing')
-        } else {
-          // Create employee record
-          const employeeInsert = await supabaseAdmin
-            .from('employees')
-            .insert({
-              tenant_id: tenantId,
-              user_id: user.id,
-              email: userEmail,
-              name: displayName,
-              status: 'active',
-              start_date: new Date().toISOString().split('T')[0],
-            })
+        for (const leaveType of defaultLeaveTypes) {
+          // Check if leave type already exists
+          const existingType = await supabaseAdmin
+            .from('leave_types')
             .select('id')
-            .single()
+            .eq('tenant_id', tenantId)
+            .eq('code', leaveType.code)
+            .maybeSingle()
 
-          if (employeeInsert.error) {
-            // Log error but don't fail onboarding - employee can be created manually later
-            console.error('Error creating employee record during onboarding:', employeeInsert.error.message)
-          } else if (employeeInsert.data) {
-            // Create default leave types for tenant if they don't exist
-            const defaultLeaveTypes = [
-              { code: 'VACATION', name: 'Vacation', requires_approval: true, requires_certificate: false, allow_negative_balance: false, color: '#3B82F6' },
-              { code: 'SICK', name: 'Sick Leave', requires_approval: false, requires_certificate: true, allow_negative_balance: true, color: '#EF4444' },
-              { code: 'PERSONAL', name: 'Personal Leave', requires_approval: true, requires_certificate: false, allow_negative_balance: false, color: '#10B981' },
-            ]
+          if (!existingType.data) {
+            // Create leave type if it doesn't exist
+            const { error: leaveTypeInsertError } = await supabaseAdmin
+              .from('leave_types')
+              .insert({
+                tenant_id: tenantId,
+                ...leaveType,
+                is_active: true,
+              })
+            if (leaveTypeInsertError) {
+              console.error(
+                `Error creating leave type ${leaveType.code}:`,
+                leaveTypeInsertError.message
+              )
+            }
+          }
+        }
 
-            for (const leaveType of defaultLeaveTypes) {
-              // Check if leave type already exists
-              const existingType = await supabaseAdmin
-                .from('leave_types')
+        // Get all active leave types for this tenant with codes
+        const leaveTypes = await supabaseAdmin
+          .from('leave_types')
+          .select('id, code')
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+
+        if (leaveTypes.data && leaveTypes.data.length > 0) {
+          // Calculate period start/end (current year)
+          const now = new Date()
+          const currentYear = now.getFullYear()
+          const periodStart = `${currentYear}-01-01`
+          const periodEnd = `${currentYear}-12-31`
+
+          // Default balances: 20 days vacation, 10 days sick, 5 days personal
+          const defaultBalances: Record<string, number> = {
+            VACATION: 20.0,
+            SICK: 10.0,
+            PERSONAL: 5.0,
+          }
+
+          // Get the first employee for creating balances
+          const employee = await supabaseAdmin
+            .from('employees')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+          if (employee.data) {
+            const employeeId = employee.data.id
+            // Create leave balances for each leave type
+            const balanceInserts = leaveTypes.data.map(async (lt) => {
+              const code = lt.code as keyof typeof defaultBalances
+              const defaultBalance = defaultBalances[code] ?? 0
+              
+              // Check if balance already exists to avoid duplicates
+              const existingBalance = await supabaseAdmin
+                .from('leave_balances')
                 .select('id')
                 .eq('tenant_id', tenantId)
-                .eq('code', leaveType.code)
+                .eq('employee_id', employeeId)
+                .eq('leave_type_id', lt.id)
+                .eq('period_start', periodStart)
+                .eq('period_end', periodEnd)
                 .maybeSingle()
-
-              if (!existingType.data) {
-                // Create leave type if it doesn't exist
-                const { error: leaveTypeInsertError } = await supabaseAdmin
-                  .from('leave_types')
-                  .insert({
-                    tenant_id: tenantId,
-                    ...leaveType,
-                    is_active: true,
-                  })
-                if (leaveTypeInsertError) {
-                  console.error(
-                    `Error creating leave type ${leaveType.code}:`,
-                    leaveTypeInsertError.message
-                  )
-                }
+              
+              if (existingBalance.data) {
+                console.log(`Leave balance for type ${lt.code} already exists, skipping`)
+                return
               }
-            }
-
-            // Get all active leave types for this tenant with codes
-            const leaveTypes = await supabaseAdmin
-              .from('leave_types')
-              .select('id, code')
-              .eq('tenant_id', tenantId)
-              .eq('is_active', true)
-
-            if (leaveTypes.data && leaveTypes.data.length > 0) {
-              // Calculate period start/end (current year)
-              const now = new Date()
-              const currentYear = now.getFullYear()
-              const periodStart = `${currentYear}-01-01`
-              const periodEnd = `${currentYear}-12-31`
-
-              // Default balances: 20 days vacation, 10 days sick, 5 days personal
-              const defaultBalances: Record<string, number> = {
-                VACATION: 20.0,
-                SICK: 10.0,
-                PERSONAL: 5.0,
+              
+              const { error: balanceInsertError } = await supabaseAdmin
+                .from('leave_balances')
+                .insert({
+                  tenant_id: tenantId,
+                  employee_id: employeeId,
+                  leave_type_id: lt.id,
+                  balance_days: defaultBalance,
+                  used_ytd: 0,
+                  period_start: periodStart,
+                  period_end: periodEnd,
+                })
+              if (balanceInsertError) {
+                // Log but don't fail - balances can be configured manually
+                console.error(
+                  `Error creating leave balance for type ${lt.code}:`,
+                  balanceInsertError.message,
+                  balanceInsertError
+                )
+              } else {
+                console.log(`Successfully created leave balance for type ${lt.code}`)
               }
+            })
 
-              // Create leave balances for each leave type
-              const balanceInserts = leaveTypes.data.map(async (lt) => {
-                const code = lt.code as keyof typeof defaultBalances
-                const defaultBalance = defaultBalances[code] ?? 0
-                
-                // Check if balance already exists to avoid duplicates
-                const existingBalance = await supabaseAdmin
-                  .from('leave_balances')
-                  .select('id')
-                  .eq('tenant_id', tenantId)
-                  .eq('employee_id', employeeInsert.data.id)
-                  .eq('leave_type_id', lt.id)
-                  .eq('period_start', periodStart)
-                  .eq('period_end', periodEnd)
-                  .maybeSingle()
-                
-                if (existingBalance.data) {
-                  console.log(`Leave balance for type ${lt.code} already exists, skipping`)
-                  return
-                }
-                
-                const { error: balanceInsertError } = await supabaseAdmin
-                  .from('leave_balances')
-                  .insert({
-                    tenant_id: tenantId,
-                    employee_id: employeeInsert.data.id,
-                    leave_type_id: lt.id,
-                    balance_days: defaultBalance,
-                    used_ytd: 0,
-                    period_start: periodStart,
-                    period_end: periodEnd,
-                  })
-                if (balanceInsertError) {
-                  // Log but don't fail - balances can be configured manually
-                  console.error(
-                    `Error creating leave balance for type ${lt.code}:`,
-                    balanceInsertError.message,
-                    balanceInsertError
-                  )
-                } else {
-                  console.log(`Successfully created leave balance for type ${lt.code}`)
-                }
-              })
-
-              // Wait for all balance inserts (best effort)
-              await Promise.allSettled(balanceInserts)
-            }
+            // Wait for all balance inserts (best effort)
+            await Promise.allSettled(balanceInserts)
           }
         }
       }

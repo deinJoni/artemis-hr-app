@@ -9,6 +9,7 @@ import type { TimeEntry, TimeEntryListQuery, TimeEntryListResponse } from "@vibe
 import type { Session } from "@supabase/supabase-js";
 import { useToast } from "~/components/toast";
 import { supabase } from "~/lib/supabase";
+import { useTranslation } from "~/lib/i18n";
 
 export async function loader() {
   const baseUrl =
@@ -28,6 +29,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function TimeEntries({ loaderData }: Route.ComponentProps) {
+  const { t } = useTranslation();
   const toast = useToast();
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" });
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
@@ -82,7 +84,7 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
       setEntries(data.entries);
       setPagination(data.pagination);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Unable to load time entries");
+      setError(e instanceof Error ? e.message : t("errors.unableToLoad"));
     } finally {
       setLoading(false);
     }
@@ -102,7 +104,7 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
 
   const handleEditSuccess = () => {
     setEditingEntry(null);
-    toast.showToast("Time entry updated successfully", "success");
+      toast.showToast(t("time.entryUpdated"), "success");
     void loadEntries();
   };
 
@@ -132,9 +134,9 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
 
       // Optimistic update
       setEntries(prev => prev.filter(e => e.id !== entry.id));
-      toast.showToast("Time entry deleted successfully", "success", {
+      toast.showToast(t("time.entryDeleted"), "success", {
         action: {
-          label: "Undo",
+          label: t("common.back"),
           onClick: async () => {
             // Would need to restore entry here if undo supported
             await loadEntries();
@@ -142,7 +144,7 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
         },
       });
     } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : "Failed to delete entry";
+      const errorMessage = e instanceof Error ? e.message : t("errors.unableToDelete");
       setError(errorMessage);
       toast.showToast(errorMessage, "error");
       await loadEntries(); // Reload on error
@@ -200,12 +202,12 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Unable to export entries");
+      setError(e instanceof Error ? e.message : t("errors.unableToLoad"));
     }
   }, [apiBaseUrl, filters, setError]);
 
   const handleSuccess = () => {
-    toast.showToast("Time entry created successfully", "success");
+      toast.showToast(t("time.entryCreated"), "success");
     void loadEntries();
   };
 
@@ -213,9 +215,9 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Time Entries</h1>
+          <h1 className="text-3xl font-bold">{t("time.entries")}</h1>
           <p className="text-muted-foreground">
-            View and manage your time entries
+            {t("time.entries")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -224,12 +226,12 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
           </Button>
           <Button variant="outline" onClick={() => void handleExport()} disabled={loading}>
             <Download className="h-4 w-4 mr-2" />
-            Export CSV
+            {t("common.export")} CSV
           </Button>
           <ManualEntryDialog apiBaseUrl={apiBaseUrl} session={session} onSuccess={handleSuccess}>
             <Button disabled={!session}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Manual Entry
+              {t("time.manualEntry")}
             </Button>
           </ManualEntryDialog>
           {editingEntry && (
@@ -261,7 +263,7 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Your Time Entries</CardTitle>
+          <CardTitle>{t("time.entries")}</CardTitle>
         </CardHeader>
         <CardContent>
           <TimeEntriesTable
@@ -279,9 +281,7 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
       {pagination.total_pages > 1 && (
         <div className="flex items-center justify-between">
           <div className="text-sm text-muted-foreground">
-            Showing {((pagination.page - 1) * pagination.page_size) + 1} to{' '}
-            {Math.min(pagination.page * pagination.page_size, pagination.total)} of{' '}
-            {pagination.total} entries
+            {t("common.showing")} {((pagination.page - 1) * pagination.page_size) + 1} {t("common.of")} {Math.min(pagination.page * pagination.page_size, pagination.total)} {t("common.of")} {pagination.total} {t("time.entries")}
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -290,10 +290,10 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
               onClick={() => handleFiltersChange({ page: pagination.page - 1 })}
               disabled={pagination.page <= 1}
             >
-              Previous
+              {t("common.previous")}
             </Button>
             <span className="text-sm">
-              Page {pagination.page} of {pagination.total_pages}
+              {t("common.page")} {pagination.page} {t("common.of")} {pagination.total_pages}
             </span>
             <Button
               variant="outline"
@@ -301,7 +301,7 @@ export default function TimeEntries({ loaderData }: Route.ComponentProps) {
               onClick={() => handleFiltersChange({ page: pagination.page + 1 })}
               disabled={pagination.page >= pagination.total_pages}
             >
-              Next
+              {t("common.next")}
             </Button>
           </div>
         </div>

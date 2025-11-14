@@ -2,8 +2,8 @@
 -- This file contains essential data to test the HR features
 
 -- Insert sample tenant
-INSERT INTO public.tenants (id, name, created_at, company_name, company_location) VALUES
-  ('550e8400-e29b-41d4-a716-446655440000', 'Acme Corp', NOW(), 'Acme Corporation', 'San Francisco, CA')
+INSERT INTO public.tenants (id, name, created_at, company_name, company_size, language) VALUES
+  ('550e8400-e29b-41d4-a716-446655440000', 'Acme Corp', NOW(), 'Acme Corporation', '26-100', 'English')
 ON CONFLICT (id) DO NOTHING;
 
 -- Insert sample departments

@@ -11,6 +11,7 @@ import {
 } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Link } from "react-router";
+import { useTranslation } from "~/lib/i18n";
 
 type MessageState =
   | { kind: "error"; text: string }
@@ -30,6 +31,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function ResetPassword() {
+  const { t } = useTranslation();
   const [view, setView] = React.useState<ViewState>("checking");
   const [message, setMessage] = React.useState<MessageState>(null);
   const [password, setPassword] = React.useState("");
@@ -101,12 +103,12 @@ export default function ResetPassword() {
     setMessage(null);
 
     if (!password || !confirmPassword) {
-      setMessage({ kind: "error", text: "Enter your new password twice to continue." });
+      setMessage({ kind: "error", text: t("auth.completeAllFields") });
       return;
     }
 
     if (password !== confirmPassword) {
-      setMessage({ kind: "error", text: "Passwords do not match. Try again." });
+      setMessage({ kind: "error", text: t("auth.passwordsDoNotMatch") });
       return;
     }
 
@@ -121,14 +123,14 @@ export default function ResetPassword() {
       setView("success");
       setMessage({
         kind: "success",
-        text: "Password updated. Sign in with your new credentials.",
+        text: t("auth.resetPassword") + " " + t("common.success") + ". " + t("auth.signInButton") + ".",
       });
 
       await supabase.auth.signOut();
     } catch (error: any) {
       setMessage({
         kind: "error",
-        text: error?.message ?? "We could not update your password. Try again.",
+        text: error?.message ?? t("errors.unableToUpdate"),
       });
     } finally {
       setUpdating(false);
@@ -140,7 +142,7 @@ export default function ResetPassword() {
       return (
         <div className="space-y-4 text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-primary border-r-transparent" />
-          <p className="text-muted-foreground text-sm">Getting things ready...</p>
+          <p className="text-muted-foreground text-sm">{t("common.loading")}</p>
         </div>
       );
     }
@@ -149,19 +151,18 @@ export default function ResetPassword() {
       return (
         <div className="space-y-6 text-center">
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-            Check your inbox
+            {t("auth.resetPassword")}
           </div>
-          <p className="text-lg font-medium text-foreground">Open the link we emailed to continue.</p>
+          <p className="text-lg font-medium text-foreground">{t("auth.resetEmailSent")}</p>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            We did not detect a recovery token. Please return to the login page and request a new
-            password reset email, then open the link on the same device.
+            {t("auth.resetPasswordDescription")}
           </p>
           <div className="flex justify-center gap-3 pt-2">
             <Button asChild variant="secondary">
-              <Link to="/login">Back to login</Link>
+              <Link to="/login">{t("auth.backToSignIn")}</Link>
             </Button>
             <Button asChild>
-              <Link to="/">Go home</Link>
+              <Link to="/">{t("common.back")}</Link>
             </Button>
           </div>
         </div>
@@ -172,13 +173,13 @@ export default function ResetPassword() {
       return (
         <div className="space-y-6 text-center">
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-            Password updated
+            {t("auth.resetPassword")}
           </div>
           <p className="text-lg font-medium text-foreground">
-            Your password is updated. Sign in again to continue.
+            {t("auth.resetPassword")} {t("common.success")}. {t("auth.signInButton")}.
           </p>
           <Button asChild className="w-full justify-center">
-            <Link to="/login">Return to login</Link>
+            <Link to="/login">{t("auth.backToSignIn")}</Link>
           </Button>
         </div>
       );
@@ -188,7 +189,7 @@ export default function ResetPassword() {
       <form className="space-y-5" onSubmit={handleSubmit}>
         <div className="space-y-2 text-left">
           <label className="text-sm font-medium text-foreground" htmlFor="password">
-            New password
+            {t("auth.passwordLabel")}
           </label>
           <input
             id="password"
@@ -204,7 +205,7 @@ export default function ResetPassword() {
 
         <div className="space-y-2 text-left">
           <label className="text-sm font-medium text-foreground" htmlFor="confirm-password">
-            Confirm new password
+            {t("auth.confirmPassword")}
           </label>
           <input
             id="confirm-password"
@@ -231,7 +232,7 @@ export default function ResetPassword() {
         )}
 
         <Button type="submit" className="w-full" disabled={updating}>
-          {updating ? "Updating..." : "Save new password"}
+          {updating ? t("common.updating") : t("common.save")}
         </Button>
 
         <p className="text-muted-foreground text-xs">
@@ -251,9 +252,9 @@ export default function ResetPassword() {
         <div className="mx-auto max-w-xl">
           <Card className="border-border/60 backdrop-blur">
             <CardHeader className="space-y-3">
-              <CardTitle className="text-3xl">Reset your password</CardTitle>
+              <CardTitle className="text-3xl">{t("auth.resetPassword")}</CardTitle>
               <CardDescription>
-                Use the secure form below to choose a new password for your Artemis account.
+                {t("auth.resetPasswordDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -275,7 +276,7 @@ export default function ResetPassword() {
                 Return home
               </Link>
               <Link to="/login" className="text-primary underline-offset-4 hover:underline">
-                Back to login
+                {t("auth.backToSignIn")}
               </Link>
             </CardFooter>
           </Card>

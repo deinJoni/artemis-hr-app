@@ -27,6 +27,7 @@ import {
   DashboardErrorState,
   DashboardThemeSelector,
 } from "~/features/dashboard/components/dashboard-states";
+import { useTranslation } from "~/lib/i18n";
 
 const THEME_MENU_OPTIONS: string[] = ["system", ...APP_THEME_OPTIONS];
 
@@ -52,6 +53,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
+  const { t } = useTranslation();
   const toast = useToast();
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" }) as { baseUrl: string };
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
@@ -194,14 +196,14 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-            Welcome back, {profile?.display_name ? profile.display_name.split(' ')[0] : 'there'}.
+            {t("dashboard.welcomeBack")}, {profile?.display_name ? profile.display_name.split(' ')[0] : t("dashboard.there")}.
           </h1>
           <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            You have{" "}
+            {t("dashboard.youHave")}{" "}
             <span className="font-semibold text-primary">3</span>{" "}
-            pending tasks and{" "}
+            {t("dashboard.pendingTasks")} {t("dashboard.and")}{" "}
             <span className="font-semibold text-primary">2</span>{" "}
-            new announcements.
+            {t("dashboard.newAnnouncements")}.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -212,7 +214,7 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
             className="hidden sm:flex items-center gap-2"
           >
             <Zap className="h-4 w-4" />
-            Quick Actions
+            {t("dashboard.quickActions")}
             <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
               ⌘K
             </kbd>
@@ -231,9 +233,9 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
           <div>
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <Zap className="h-5 w-5 text-primary" />
-              Quick Actions
+              {t("dashboard.quickActions")}
             </h3>
-            <p className="text-sm text-muted-foreground mt-1">One-click access to common tasks</p>
+            <p className="text-sm text-muted-foreground mt-1">{t("dashboard.oneClickAccess")}</p>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -243,7 +245,7 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
             variant="outline"
           >
             <Clock className="h-5 w-5" />
-            <span className="text-sm font-medium">{isClockedIn ? "Clock Out" : "Clock In"}</span>
+            <span className="text-sm font-medium">{isClockedIn ? t("time.clockOut") : t("time.clockIn")}</span>
           </Button>
           <Button
             onClick={() => setRequestOpen(true)}
@@ -251,7 +253,7 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
             variant="outline"
           >
             <CalendarDays className="h-5 w-5" />
-            <span className="text-sm font-medium">Request Time Off</span>
+            <span className="text-sm font-medium">{t("dashboard.requestTimeOff")}</span>
           </Button>
           <Button
             onClick={() => setTimeEntryOpen(true)}
@@ -259,7 +261,7 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
             variant="outline"
           >
             <Clock className="h-5 w-5" />
-            <span className="text-sm font-medium">Add Time Entry</span>
+            <span className="text-sm font-medium">{t("dashboard.addTimeEntry")}</span>
           </Button>
           <Button
             onClick={() => navigate("/employees")}
@@ -267,7 +269,7 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
             variant="outline"
           >
             <UserPlus className="h-5 w-5" />
-            <span className="text-sm font-medium">Add Employee</span>
+            <span className="text-sm font-medium">{t("dashboard.addEmployee")}</span>
           </Button>
         </div>
       </BentoCard>

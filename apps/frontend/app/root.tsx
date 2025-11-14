@@ -42,6 +42,8 @@ import "./app.css";
 import { ApiProvider } from "~/lib/api-context";
 import { ToastProvider } from "~/components/toast";
 import { setAuthCookie } from "~/lib/set-auth-cookie";
+import { i18n, useTranslation } from "~/lib/i18n"; // Initialize i18n
+import { LanguageSwitcher } from "~/components/language-switcher";
 
 const DEFAULT_BACKEND_URL =
   (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -97,9 +99,49 @@ function NoFlashThemeScript() {
   return <script dangerouslySetInnerHTML={{ __html: code }} />;
 }
 
+function LanguageUpdater() {
+  React.useEffect(() => {
+    const handleLanguageChanged = (lng: string) => {
+      if (typeof document !== "undefined") {
+        document.documentElement.lang = lng;
+      }
+    };
+
+    // Set initial language
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = i18n.language || "en";
+    }
+
+    // Listen for language changes
+    i18n.on("languageChanged", handleLanguageChanged);
+
+    return () => {
+      i18n.off("languageChanged", handleLanguageChanged);
+    };
+  }, []);
+
+  return null;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
+  // Get initial language from i18n (will be detected from localStorage/browser)
+  const getInitialLang = () => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("i18nextLng");
+      if (stored && (stored === "en" || stored === "de")) {
+        return stored;
+      }
+      // Check browser language
+      const browserLang = navigator.language.split("-")[0];
+      return browserLang === "de" ? "de" : "en";
+    }
+    return "en";
+  };
+
+  const initialLang = getInitialLang();
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={initialLang} suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -109,6 +151,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body suppressHydrationWarning>
         <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
+          <LanguageUpdater />
           <AppShell>{children}</AppShell>
         </ThemeProvider>
         <ScrollRestoration />
@@ -119,6 +162,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const location = useLocation();
   const [session, setSession] = React.useState<Session | null>(null);
   const [checkingSession, setCheckingSession] = React.useState(true);
@@ -210,13 +254,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
           const message =
             (typeof payload.error === "string" && payload.error) ||
             response.statusText ||
-            "Unable to load workspace";
+            t("errors.unableToLoadWorkspace");
           throw new Error(message);
         }
 
         const parsed = AccountBootstrapResponseSchema.safeParse(payload);
         if (!parsed.success) {
-          throw new Error("Unexpected response from the server");
+          throw new Error(t("errors.unexpectedResponse"));
         }
 
         if (cancelled) return;
@@ -227,7 +271,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         setTenant(null);
         setTenantStatus("error");
-        setTenantError(error instanceof Error ? error.message : "Unable to load workspace");
+        setTenantError(error instanceof Error ? error.message : t("errors.unableToLoadWorkspace"));
       }
     }
 
@@ -348,6 +392,7 @@ function AuthenticatedLayout({
   tenantError,
   pathname,
 }: AuthenticatedLayoutProps) {
+  const { t } = useTranslation();
   const breadcrumbs = React.useMemo(() => buildBreadcrumbs(pathname), [pathname]);
 
   // Simple role guard: allow Calendar only for manager+ when we can check via backend
@@ -409,7 +454,7 @@ function AuthenticatedLayout({
                   <BreadcrumbList>
                     <BreadcrumbItem className="hidden sm:block">
                       <BreadcrumbLink asChild>
-                        <Link to="/">Dashboard</Link>
+                        <Link to="/">{t("breadcrumbs.dashboard")}</Link>
                       </BreadcrumbLink>
                     </BreadcrumbItem>
                     {breadcrumbs.length > 0 ? (
@@ -438,13 +483,14 @@ function AuthenticatedLayout({
                     })}
                     {breadcrumbs.length === 0 ? (
                       <BreadcrumbItem>
-                        <BreadcrumbPage>Overview</BreadcrumbPage>
+                        <BreadcrumbPage>{t("common.overview")}</BreadcrumbPage>
                       </BreadcrumbItem>
                     ) : null}
                   </BreadcrumbList>
                 </Breadcrumb>
               </div>
               <div className="flex items-center gap-2">
+                <LanguageSwitcher />
                 <ModeToggle />
               </div>
             </header>
@@ -498,15 +544,16 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+  const { t } = useTranslation();
   let message = "Oops!";
-  let details = "An unexpected error occurred.";
+  let details = t("errors.unexpectedError");
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "Error";
+    message = error.status === 404 ? "404" : t("common.error");
     details =
       error.status === 404
-        ? "The requested page could not be found."
+        ? t("errors.pageNotFound")
         : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;

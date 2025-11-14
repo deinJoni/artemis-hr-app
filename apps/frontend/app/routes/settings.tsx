@@ -35,14 +35,10 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
 
   const [form, setForm] = React.useState({
     company_name: "",
-    company_location: "",
     company_size: "",
-    contact_name: "",
-    contact_email: "",
-    contact_phone: "",
-    needs_summary: "",
-    key_priorities: "",
+    language: "",
   });
+  const [adminUser, setAdminUser] = React.useState<{ name: string; email: string | null } | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -64,14 +60,18 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         setTenantId(parsed.data.id);
         setForm({
           company_name: parsed.data.company_name ?? "",
-          company_location: parsed.data.company_location ?? "",
           company_size: parsed.data.company_size ?? "",
-          contact_name: parsed.data.contact_name ?? "",
-          contact_email: parsed.data.contact_email ?? "",
-          contact_phone: parsed.data.contact_phone ?? "",
-          needs_summary: parsed.data.needs_summary ?? "",
-          key_priorities: parsed.data.key_priorities ?? "",
+          language: parsed.data.language ?? "",
         });
+        
+        // Fetch admin/owner user info
+        const currentUser = sessionData.session?.user;
+        if (currentUser) {
+          setAdminUser({
+            name: currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0] || 'Admin',
+            email: currentUser.email || null,
+          });
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Unable to load settings");
       } finally {
@@ -109,13 +109,8 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
     try {
       const payload = TenantUpdateInputSchema.parse({
         company_name: form.company_name || null,
-        company_location: form.company_location || null,
         company_size: form.company_size || null,
-        contact_name: form.contact_name || null,
-        contact_email: form.contact_email || null,
-        contact_phone: form.contact_phone || null,
-        needs_summary: form.needs_summary || null,
-        key_priorities: form.key_priorities || null,
+        language: form.language || null,
       });
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -161,6 +156,23 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         <p className="text-muted-foreground mt-1 text-sm">Update basic company information.</p>
       </div>
 
+      {/* Admin User Info Section */}
+      {adminUser && (
+        <div className="rounded-lg border border-border/60 bg-card p-4">
+          <h2 className="text-lg font-semibold mb-2">Admin User</h2>
+          <div className="space-y-1 text-sm">
+            <p>
+              <span className="text-muted-foreground">Name:</span>{" "}
+              <span className="font-medium">{adminUser.name}</span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">Email:</span>{" "}
+              <span className="font-medium">{adminUser.email || "–"}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
       <form className="space-y-4" onSubmit={handleSave}>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1 text-left">
@@ -175,79 +187,33 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           </label>
           <label className="space-y-1 text-left">
             <span className="text-sm font-medium">Company size</span>
-            <input
-              type="text"
+            <select
               value={form.company_size}
               onChange={(e) => setForm((f) => ({ ...f, company_size: e.target.value }))}
               className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              placeholder="10-50"
-            />
+            >
+              <option value="">Select size...</option>
+              <option value="1-10">1-10</option>
+              <option value="11-25">11-25</option>
+              <option value="26-100">26-100</option>
+              <option value="101-500">101-500</option>
+              <option value="501-1000">501-1000</option>
+              <option value="> 1000">&gt; 1000</option>
+            </select>
           </label>
         </div>
 
         <label className="space-y-1 text-left">
-          <span className="text-sm font-medium">Location</span>
-          <input
-            type="text"
-            value={form.company_location}
-            onChange={(e) => setForm((f) => ({ ...f, company_location: e.target.value }))}
+          <span className="text-sm font-medium">Language</span>
+          <select
+            value={form.language}
+            onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}
             className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            placeholder="San Francisco, CA"
-          />
-        </label>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1 text-left">
-            <span className="text-sm font-medium">Contact name</span>
-            <input
-              type="text"
-              value={form.contact_name}
-              onChange={(e) => setForm((f) => ({ ...f, contact_name: e.target.value }))}
-              className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              placeholder="Ada Lovelace"
-            />
-          </label>
-          <label className="space-y-1 text-left">
-            <span className="text-sm font-medium">Contact email</span>
-            <input
-              type="email"
-              value={form.contact_email}
-              onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))}
-              className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              placeholder="ada@acme.com"
-            />
-          </label>
-        </div>
-
-        <label className="space-y-1 text-left">
-          <span className="text-sm font-medium">Contact phone</span>
-          <input
-            type="tel"
-            value={form.contact_phone}
-            onChange={(e) => setForm((f) => ({ ...f, contact_phone: e.target.value }))}
-            className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            placeholder="+1 (415) 555-0199"
-          />
-        </label>
-
-        <label className="space-y-1 text-left">
-          <span className="text-sm font-medium">Needs summary</span>
-          <textarea
-            value={form.needs_summary}
-            onChange={(e) => setForm((f) => ({ ...f, needs_summary: e.target.value }))}
-            className="min-h-[120px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            placeholder="We're looking to centralize insights..."
-          />
-        </label>
-
-        <label className="space-y-1 text-left">
-          <span className="text-sm font-medium">Key priorities</span>
-          <textarea
-            value={form.key_priorities}
-            onChange={(e) => setForm((f) => ({ ...f, key_priorities: e.target.value }))}
-            className="min-h-[120px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            placeholder="Launch new program, onboard team..."
-          />
+          >
+            <option value="">Select language...</option>
+            <option value="German">German</option>
+            <option value="English">English</option>
+          </select>
         </label>
 
         <div className="flex items-center gap-3">

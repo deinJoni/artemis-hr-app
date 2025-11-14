@@ -13,6 +13,7 @@ import {
 } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { GoogleIcon } from "~/components/icons/google-icon";
+import { useTranslation } from "~/lib/i18n";
 
 type MessageState =
   | { kind: "error"; text: string }
@@ -30,6 +31,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Login() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -66,7 +68,7 @@ export default function Login() {
     setMessage(null);
 
     if (!email || !password) {
-      setMessage({ kind: "error", text: "Please provide both email and password." });
+      setMessage({ kind: "error", text: t("auth.completeAllFields") });
       return;
     }
 
@@ -75,7 +77,7 @@ export default function Login() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      setMessage({ kind: "success", text: "Signed in. Redirecting to your dashboard..." });
+      setMessage({ kind: "success", text: t("auth.signInButton") + ". " + t("common.loading") });
       navigate("/", { replace: true });
     } catch (error: unknown) {
       if (error instanceof AuthApiError && error.status === 400) {
@@ -91,7 +93,7 @@ export default function Login() {
         text:
           error instanceof Error
             ? error.message
-            : "Something went wrong. Please try again.",
+            : t("errors.genericError"),
       });
     } finally {
       setAuthLoading(false);
@@ -115,7 +117,7 @@ export default function Login() {
     } catch (error: any) {
       setMessage({
         kind: "error",
-        text: error?.message ?? "We could not connect to Google. Try again shortly.",
+        text: error?.message ?? t("auth.couldNotConnectToGoogle"),
       });
       setGoogleLoading(false);
     }
@@ -127,7 +129,7 @@ export default function Login() {
     if (!email) {
       setMessage({
         kind: "error",
-        text: "Add the email you registered with so we can send a reset link.",
+        text: t("auth.resetPasswordDescription"),
       });
       return;
     }
@@ -142,12 +144,12 @@ export default function Login() {
       if (error) throw error;
       setMessage({
         kind: "success",
-        text: "We just sent you instructions to reset your password.",
+        text: t("auth.resetEmailSent"),
       });
     } catch (error: any) {
       setMessage({
         kind: "error",
-        text: error?.message ?? "We could not send a reset email. Try again shortly.",
+        text: error?.message ?? t("auth.couldNotSendResetEmail"),
       });
     } finally {
       setResetLoading(false);
@@ -160,13 +162,13 @@ export default function Login() {
         <div className="grid items-center gap-12 lg:grid-cols-[1.2fr_minmax(0,420px)]">
           <section className="space-y-6 text-center lg:text-left">
             <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-              Welcome back
+              {t("auth.welcomeBack")}
             </div>
             <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
-              Sign in to your Artemis workspace
+              {t("auth.signInToWorkspace")}
             </h1>
             <p className="text-muted-foreground text-lg leading-relaxed">
-              Jump back into your research, review your progress, and keep the momentum going. Supabase keeps every authentication flow secure.
+              {t("auth.signInDescription")}
             </p>
             <div className="hidden lg:flex lg:flex-col lg:gap-4">
               <div className="flex items-center gap-3">
@@ -174,9 +176,9 @@ export default function Login() {
                   1
                 </div>
                 <div>
-                  <p className="font-medium">Choose your method</p>
+                  <p className="font-medium">{t("auth.chooseMethod")}</p>
                   <p className="text-muted-foreground text-sm">
-                    Continue with your email and password or use Google to sign in instantly.
+                    {t("auth.chooseMethodDescription")}
                   </p>
                 </div>
               </div>
@@ -185,9 +187,9 @@ export default function Login() {
                   2
                 </div>
                 <div>
-                  <p className="font-medium">Stay in control</p>
+                  <p className="font-medium">{t("auth.stayInControl")}</p>
                   <p className="text-muted-foreground text-sm">
-                    Reset your password whenever you need and keep your account protected.
+                    {t("auth.stayInControlDescription")}
                   </p>
                 </div>
               </div>
@@ -196,9 +198,9 @@ export default function Login() {
                   3
                 </div>
                 <div>
-                  <p className="font-medium">Head to your dashboard</p>
+                  <p className="font-medium">{t("auth.headToDashboard")}</p>
                   <p className="text-muted-foreground text-sm">
-                    Successful sign-ins take you straight to the dashboard so you can get back to work.
+                    {t("auth.headToDashboardDescription")}
                   </p>
                 </div>
               </div>
@@ -207,9 +209,9 @@ export default function Login() {
 
           <Card className="w-full border-border/60 backdrop-blur">
             <CardHeader>
-              <CardTitle className="text-2xl">Welcome back</CardTitle>
+              <CardTitle className="text-2xl">{t("auth.welcomeBack")}</CardTitle>
               <CardDescription>
-                Use your Artemis credentials or sign in with Google to access your workspace.
+                {t("auth.useCredentials")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -221,12 +223,12 @@ export default function Login() {
                 disabled={googleLoading}
               >
                 <GoogleIcon className="mr-2 size-4" />
-                {googleLoading ? "Connecting to Google..." : "Continue with Google"}
+                {googleLoading ? t("auth.connectingToGoogle") : t("auth.continueWithGoogle")}
               </Button>
 
               <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted-foreground">
                 <span className="h-px flex-1 bg-border" aria-hidden />
-                Or continue with email
+                {t("auth.orContinueWithEmail")}
                 <span className="h-px flex-1 bg-border" aria-hidden />
               </div>
 
@@ -245,7 +247,7 @@ export default function Login() {
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="space-y-2 text-left">
                   <label className="text-sm font-medium text-foreground" htmlFor="email">
-                    Email
+                    {t("auth.emailLabel")}
                   </label>
                   <input
                     id="email"
@@ -262,7 +264,7 @@ export default function Login() {
 
                 <div className="space-y-2 text-left">
                   <label className="text-sm font-medium text-foreground" htmlFor="password">
-                    Password
+                    {t("auth.passwordLabel")}
                   </label>
                   <input
                     id="password"
@@ -277,7 +279,7 @@ export default function Login() {
                 </div>
 
                 <Button type="submit" disabled={authLoading} className="w-full">
-                  {authLoading ? "Please wait..." : "Sign in to Artemis"}
+                  {authLoading ? t("common.pleaseWait") : t("auth.signInButton")}
                 </Button>
               </form>
 
@@ -288,10 +290,10 @@ export default function Login() {
                   disabled={resetLoading}
                   className="text-primary underline-offset-4 transition hover:underline disabled:pointer-events-none disabled:opacity-70"
                 >
-                  {resetLoading ? "Sending reset link..." : "Forgot your password?"}
+                  {resetLoading ? t("auth.sendingResetLink") : t("auth.forgotPassword")}
                 </button>
                 <Link to="/register" className="text-muted-foreground transition hover:text-foreground">
-                  Need an account? Register
+                  {t("auth.dontHaveAccount")} {t("auth.signUpLink")}
                 </Link>
               </div>
             </CardContent>

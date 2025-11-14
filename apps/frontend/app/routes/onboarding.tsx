@@ -12,6 +12,7 @@ import {
 import { supabase } from "~/lib/supabase";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/lib/i18n";
 
 type OnboardingState = {
   email?: string;
@@ -58,6 +59,7 @@ export async function loader() {
 }
 
 export default function Onboarding({ loaderData }: Route.ComponentProps) {
+  const { t } = useTranslation();
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" }) as { baseUrl: string };
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
 
@@ -111,13 +113,12 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
 
   const [formData, setFormData] = React.useState({
     companyName: "",
-    companyLocation: "",
     companySize: "",
-    contactName: "",
-    contactEmail: "",
-    contactPhone: "",
-    needsSummary: "",
-    keyPriorities: "",
+    language: "",
+    firstName: "",
+    lastName: "",
+    companyEmail: "",
+    rolePosition: "",
   });
 
   const bootstrapInitiatedRef = React.useRef(false);
@@ -193,13 +194,13 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
     setFormData((data) => ({
       ...data,
       companyName: bootstrappedTenant.company_name ?? data.companyName,
-      companyLocation: bootstrappedTenant.company_location ?? data.companyLocation,
       companySize: bootstrappedTenant.company_size ?? data.companySize,
-      contactName: bootstrappedTenant.contact_name ?? data.contactName,
-      contactEmail: bootstrappedTenant.contact_email ?? data.contactEmail,
-      contactPhone: bootstrappedTenant.contact_phone ?? data.contactPhone,
-      needsSummary: bootstrappedTenant.needs_summary ?? data.needsSummary,
-      keyPriorities: bootstrappedTenant.key_priorities ?? data.keyPriorities,
+      language: bootstrappedTenant.language ?? data.language,
+      // Keep existing form data for step 2 fields (not stored in tenant)
+      firstName: data.firstName,
+      lastName: data.lastName,
+      companyEmail: data.companyEmail,
+      rolePosition: data.rolePosition,
     }));
   }, [bootstrappedTenant]);
 
@@ -429,13 +430,13 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
             <div className="space-y-6">
               <header className="space-y-2 text-left">
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  Step 1 · Company basics
+                  {t("onboarding.step1")}
                 </p>
                 <h2 className="text-2xl font-semibold tracking-tight">
-                  Tell us a little about your company
+                  {t("onboarding.companySetup")}
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  This helps us personalize Artemis for your organization size and footprint.
+                  {t("onboarding.companySetupDescription")}
                 </p>
               </header>
 
@@ -445,21 +446,21 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                   event.preventDefault();
                   const trimmed = {
                     companyName: formData.companyName.trim(),
-                    companyLocation: formData.companyLocation.trim(),
-                    companySize: formData.companySize.trim(),
+                    companySize: formData.companySize as "1-10" | "11-25" | "26-100" | "101-500" | "501-1000" | "> 1000",
+                    language: formData.language as "German" | "English",
                   };
                   const parse = OnboardingStepPayloadSchema.safeParse({
                     step: 1,
                     ...trimmed,
                   });
                   if (!parse.success) {
-                  const errors = parse.error.flatten().fieldErrors as Record<string, string[]>;
+                    const errors = parse.error.flatten().fieldErrors as Record<string, string[]>;
                     if (errors.companyName) {
                       setStepError("Please enter a company name.");
-                    } else if (errors.companyLocation) {
-                      setStepError("Please enter a company location.");
                     } else if (errors.companySize) {
-                      setStepError("Please enter a company size.");
+                      setStepError("Please select a company size.");
+                    } else if (errors.language) {
+                      setStepError("Please select a language.");
                     } else {
                       setStepError("Please complete all required fields.");
                     }
@@ -468,47 +469,55 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                   void submitStep(parse.data);
                 }}
               >
+                <label className="space-y-2 text-left">
+                  <span className="text-sm font-medium text-foreground">{t("onboarding.companyName")}</span>
+                  <input
+                    type="text"
+                    value={formData.companyName}
+                    onChange={(event) =>
+                      setFormData((data) => ({ ...data, companyName: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    placeholder={t("onboarding.companyNamePlaceholder")}
+                    required
+                  />
+                </label>
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="space-y-2 text-left">
-                    <span className="text-sm font-medium text-foreground">Company name</span>
-                    <input
-                      type="text"
-                      value={formData.companyName}
-                      onChange={(event) =>
-                        setFormData((data) => ({ ...data, companyName: event.target.value }))
-                      }
-                      className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      placeholder="Acme Labs"
-                      required
-                    />
-                  </label>
-                  <label className="space-y-2 text-left">
-                    <span className="text-sm font-medium text-foreground">Company size</span>
-                    <input
-                      type="text"
+                    <span className="text-sm font-medium text-foreground">{t("settings.companySize")}</span>
+                    <select
                       value={formData.companySize}
                       onChange={(event) =>
                         setFormData((data) => ({ ...data, companySize: event.target.value }))
                       }
                       className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      placeholder="10-50 teammates"
                       required
-                    />
+                    >
+                      <option value="">{t("onboarding.selectSize")}</option>
+                      <option value="1-10">1-10</option>
+                      <option value="11-25">11-25</option>
+                      <option value="26-100">26-100</option>
+                      <option value="101-500">101-500</option>
+                      <option value="501-1000">501-1000</option>
+                      <option value="> 1000">&gt; 1000</option>
+                    </select>
+                  </label>
+                  <label className="space-y-2 text-left">
+                    <span className="text-sm font-medium text-foreground">{t("settings.language")}</span>
+                    <select
+                      value={formData.language}
+                      onChange={(event) =>
+                        setFormData((data) => ({ ...data, language: event.target.value }))
+                      }
+                      className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      required
+                    >
+                      <option value="">{t("onboarding.selectLanguage")}</option>
+                      <option value="German">{t("onboarding.german")}</option>
+                      <option value="English">{t("onboarding.english")}</option>
+                    </select>
                   </label>
                 </div>
-                <label className="space-y-2 text-left">
-                  <span className="text-sm font-medium text-foreground">Where are you based?</span>
-                  <input
-                    type="text"
-                    value={formData.companyLocation}
-                    onChange={(event) =>
-                      setFormData((data) => ({ ...data, companyLocation: event.target.value }))
-                    }
-                    className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    placeholder="San Francisco, CA"
-                    required
-                  />
-                </label>
 
                 {stepError && (
                   <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -518,10 +527,10 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
 
                 <div className="flex flex-wrap justify-between gap-3">
                   <Button type="button" variant="outline" onClick={() => navigate("/login")}>
-                    Cancel setup
+                    {t("onboarding.cancelSetup")}
                   </Button>
                   <Button type="submit" disabled={stepSubmitting}>
-                    {stepSubmitting ? "Saving..." : "Continue to step 2"}
+                    {stepSubmitting ? t("onboarding.saving") : t("onboarding.continueToStep2")}
                   </Button>
                 </div>
               </form>
@@ -534,13 +543,13 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
             <div className="space-y-6">
               <header className="space-y-2 text-left">
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  Step 2 · Contact details
+                  {t("onboarding.step2")}
                 </p>
                 <h2 className="text-2xl font-semibold tracking-tight">
-                  Who should we reach out to?
+                  {t("onboarding.addFirstEmployee")}
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  We will use this information for onboarding support and account notices.
+                  {t("onboarding.addFirstEmployeeDescription")}
                 </p>
               </header>
 
@@ -549,9 +558,10 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                 onSubmit={(event) => {
                   event.preventDefault();
                   const trimmed = {
-                    contactName: formData.contactName.trim(),
-                    contactEmail: formData.contactEmail.trim(),
-                    contactPhone: formData.contactPhone.trim(),
+                    firstName: formData.firstName.trim(),
+                    lastName: formData.lastName.trim(),
+                    companyEmail: formData.companyEmail.trim(),
+                    rolePosition: formData.rolePosition.trim(),
                   };
                   const parse = OnboardingStepPayloadSchema.safeParse({
                     step: 2,
@@ -559,12 +569,14 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                   });
                   if (!parse.success) {
                     const errors = parse.error.flatten().fieldErrors as Record<string, string[]>;
-                    if (errors.contactName) {
-                      setStepError("Please enter a valid contact name.");
-                    } else if (errors.contactEmail) {
+                    if (errors.firstName) {
+                      setStepError("Please enter a first name.");
+                    } else if (errors.lastName) {
+                      setStepError("Please enter a last name.");
+                    } else if (errors.companyEmail) {
                       setStepError("Please enter a valid email address.");
-                    } else if (errors.contactPhone) {
-                      setStepError("Please enter a valid phone number (at least 3 characters).");
+                    } else if (errors.rolePosition) {
+                      setStepError("Please enter a role or position.");
                     } else {
                       setStepError("Please complete all required fields.");
                     }
@@ -575,42 +587,55 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
               >
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="space-y-2 text-left">
-                    <span className="text-sm font-medium text-foreground">Primary contact</span>
+                    <span className="text-sm font-medium text-foreground">First name</span>
                     <input
                       type="text"
-                      value={formData.contactName}
+                      value={formData.firstName}
                       onChange={(event) =>
-                        setFormData((data) => ({ ...data, contactName: event.target.value }))
+                        setFormData((data) => ({ ...data, firstName: event.target.value }))
                       }
                       className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      placeholder="Ada Lovelace"
+                      placeholder={t("onboarding.firstNamePlaceholder")}
                       required
                     />
                   </label>
                   <label className="space-y-2 text-left">
-                    <span className="text-sm font-medium text-foreground">Contact email</span>
+                    <span className="text-sm font-medium text-foreground">Last name</span>
                     <input
-                      type="email"
-                      value={formData.contactEmail}
+                      type="text"
+                      value={formData.lastName}
                       onChange={(event) =>
-                        setFormData((data) => ({ ...data, contactEmail: event.target.value }))
+                        setFormData((data) => ({ ...data, lastName: event.target.value }))
                       }
                       className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      placeholder="ada@acmelabs.com"
+                      placeholder={t("onboarding.lastNamePlaceholder")}
                       required
                     />
                   </label>
                 </div>
                 <label className="space-y-2 text-left">
-                  <span className="text-sm font-medium text-foreground">Contact phone</span>
+                  <span className="text-sm font-medium text-foreground">Company email</span>
                   <input
-                    type="tel"
-                    value={formData.contactPhone}
+                    type="email"
+                    value={formData.companyEmail}
                     onChange={(event) =>
-                      setFormData((data) => ({ ...data, contactPhone: event.target.value }))
+                      setFormData((data) => ({ ...data, companyEmail: event.target.value }))
                     }
                     className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    placeholder="+1 (415) 555-0199"
+                    placeholder={t("onboarding.companyEmailPlaceholder")}
+                    required
+                  />
+                </label>
+                <label className="space-y-2 text-left">
+                  <span className="text-sm font-medium text-foreground">Role + Position</span>
+                  <input
+                    type="text"
+                    value={formData.rolePosition}
+                    onChange={(event) =>
+                      setFormData((data) => ({ ...data, rolePosition: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    placeholder={t("onboarding.rolePositionPlaceholder")}
                     required
                   />
                 </label>
@@ -637,70 +662,24 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
         return (
           <StepShell>
             <div className="space-y-6">
-              <header className="space-y-2 text-left">
+              <header className="space-y-2 text-center">
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  Step 3 · Your goals
+                  Step 3 · Welcome
                 </p>
                 <h2 className="text-2xl font-semibold tracking-tight">
-                  Align Artemis with your priorities
+                  Welcome to Artemis!
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Share the needs and initiatives you have in mind. We will tailor upcoming
-                  features and recommendations to match.
+                  Your workspace is ready. You can now start managing your team and organization.
                 </p>
               </header>
 
-              <form
-                className="space-y-4"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const trimmed = {
-                    needsSummary: formData.needsSummary.trim(),
-                    keyPriorities: formData.keyPriorities.trim(),
-                  };
-                  const parse = OnboardingStepPayloadSchema.safeParse({
-                    step: 3,
-                    ...trimmed,
-                  });
-                  if (!parse.success) {
-                    const errors = parse.error.flatten().fieldErrors as Record<string, string[]>;
-                    if (errors.needsSummary) {
-                      setStepError("Please describe what you need most (at least 3 characters).");
-                    } else if (errors.keyPriorities) {
-                      setStepError("Please describe your key priorities (at least 3 characters).");
-                    } else {
-                      setStepError("Please complete all required fields.");
-                    }
-                    return;
-                  }
-                  void submitStep(parse.data);
-                }}
-              >
-                <label className="space-y-2 text-left">
-                  <span className="text-sm font-medium text-foreground">What do you need most right now?</span>
-                  <textarea
-                    value={formData.needsSummary}
-                    onChange={(event) =>
-                      setFormData((data) => ({ ...data, needsSummary: event.target.value }))
-                    }
-                    className="min-h-[120px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    placeholder="We're looking to centralize research insights..."
-                    required
-                  />
-                </label>
-
-                <label className="space-y-2 text-left">
-                  <span className="text-sm font-medium text-foreground">Key priorities for the next quarter</span>
-                  <textarea
-                    value={formData.keyPriorities}
-                    onChange={(event) =>
-                      setFormData((data) => ({ ...data, keyPriorities: event.target.value }))
-                    }
-                    className="min-h-[120px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    placeholder="Launch our new lab program, onboard data scientists..."
-                    required
-                  />
-                </label>
+              <div className="space-y-4">
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Setup complete. You'll be redirected to your dashboard shortly.
+                  </p>
+                </div>
 
                 {stepError && (
                   <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -712,11 +691,17 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                   <Button type="button" variant="outline" onClick={handleBack}>
                     Back
                   </Button>
-                  <Button type="submit" disabled={stepSubmitting}>
+                  <Button
+                    type="button"
+                    disabled={stepSubmitting}
+                    onClick={() => {
+                      void submitStep({ step: 3 });
+                    }}
+                  >
                     {stepSubmitting ? "Finishing..." : "Complete onboarding"}
                   </Button>
                 </div>
-              </form>
+              </div>
             </div>
           </StepShell>
         );
@@ -766,8 +751,8 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
             {email && (
               <p className="text-sm text-muted-foreground">
                 {awaitingVerification
-                  ? `We sent a message to ${email}. Once confirmed, refresh this page to continue.`
-                  : `Signed in as ${email}.`}
+                  ? `${t("onboarding.weSentMessage")} ${email}. ${t("onboarding.onceConfirmed")}`
+                  : `${t("onboarding.signedInAs")} ${email}.`}
               </p>
             )}
             {(checkingSession || awaitingBootstrap) && (
@@ -777,10 +762,10 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
             )}
             {bootstrapStatus === "error" && (
               <div className="mx-auto max-w-md rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {bootstrapError ?? "We could not prepare your workspace."}
+                {bootstrapError ?? t("onboarding.weCouldNotPrepare")}
                 <div className="mt-3 flex justify-center">
                   <Button variant="outline" onClick={retryBootstrap}>
-                    Try again
+                    {t("common.tryAgain")}
                   </Button>
                 </div>
               </div>
@@ -844,9 +829,9 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                     </span>
                   </p>
                   <p>
-                    Location:{" "}
+                    Language:{" "}
                     <span className="text-foreground">
-                      {bootstrappedTenant.company_location ?? "–"}
+                      {bootstrappedTenant.language ?? "–"}
                     </span>
                   </p>
                 </div>
@@ -869,3 +854,4 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
     </main>
   );
 }
+

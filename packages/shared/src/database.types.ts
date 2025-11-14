@@ -2558,6 +2558,7 @@ export type Database = {
           created_at: string
           id: string
           key_priorities: string | null
+          language: string | null
           name: string
           needs_summary: string | null
           onboarding_step: number
@@ -2574,6 +2575,7 @@ export type Database = {
           created_at?: string
           id?: string
           key_priorities?: string | null
+          language?: string | null
           name: string
           needs_summary?: string | null
           onboarding_step?: number
@@ -2590,6 +2592,7 @@ export type Database = {
           created_at?: string
           id?: string
           key_priorities?: string | null
+          language?: string | null
           name?: string
           needs_summary?: string | null
           onboarding_step?: number

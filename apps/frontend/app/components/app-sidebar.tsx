@@ -18,6 +18,7 @@ import {
 import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
 import { useKeyboardShortcuts } from "~/hooks/use-keyboard-shortcuts";
+import { useTranslation } from "~/lib/i18n";
 
 type NavItem = {
   label: string;
@@ -34,31 +35,7 @@ type AppSidebarProps = {
   tenant: AccountBootstrapResponse["tenant"] | null;
 };
 
-const navItems: NavItem[] = [
-  { label: "Dashboard", to: "/", icon: LayoutDashboard, disabled: false, keywords: ["home", "main"] },
-  { label: "Time Entries", to: "/time/entries", icon: Clock, disabled: false, keywords: ["time", "hours", "timesheet"] },
-  { label: "Overtime", to: "/time/overtime", icon: TrendingUp, disabled: false, keywords: ["ot", "extra"] },
-  { label: "Approvals", to: "/approvals", icon: CheckCircle, disabled: false, requires: "team", keywords: ["approve", "review", "time", "leave"] },
-  { label: "Chat", to: "/chat", icon: MessageCircle, disabled: false, keywords: ["assistant", "ai", "support", "chat"] },
-  { label: "Calendar", to: "/calendar", icon: CalendarDays, disabled: false, requires: "calendar", keywords: ["schedule", "events"] },
-  { label: "My Team", to: "/my-team", icon: UserCircle2, disabled: false, requires: "team", keywords: ["team", "people"] },
-  { label: "Workflows", to: "/workflows", icon: GitBranch, disabled: false, keywords: ["automation", "process"] },
-  { label: "Members", to: "/members", icon: Users, disabled: false, keywords: ["people", "directory"] },
-  { label: "Employees", to: "/employees", icon: Users, disabled: false, keywords: ["staff", "workers"] },
-  { label: "Settings", to: "/settings", icon: Settings, disabled: false, keywords: ["config", "preferences"] },
-  { label: "Support", to: "/support", icon: LifeBuoy, disabled: true, keywords: ["help"] },
-];
-
-const leaveNavItems: NavItem[] = [
-  { label: "My Requests", to: "/leave/requests", icon: Calendar, disabled: false, keywords: ["leave", "pto", "vacation"] },
-  { label: "Team Calendar", to: "/leave/team-calendar", icon: CalendarCheck, disabled: false, requires: "team", keywords: ["calendar", "schedule"] },
-  { label: "Settings", to: "/leave/admin", icon: Settings, disabled: false, requires: "calendar", keywords: ["admin", "config"] },
-];
-
-const recruitingNavItems: NavItem[] = [
-  { label: "Jobs", to: "/recruiting/jobs", icon: Briefcase, disabled: false, keywords: ["jobs", "postings", "positions"] },
-  { label: "Analytics", to: "/recruiting/analytics", icon: TrendingUp, disabled: false, keywords: ["stats", "metrics", "reports"] },
-];
+// Nav items will be created inside component to use translations
 
 export function AppSidebar({
   session,
@@ -66,6 +43,7 @@ export function AppSidebar({
   canViewCalendar = false,
   canManageTeam = false,
 }: AppSidebarProps & { canViewCalendar?: boolean; canManageTeam?: boolean }) {
+  const { t } = useTranslation();
   const { open, isMobile, setOpen } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
@@ -76,12 +54,38 @@ export function AppSidebar({
   const [showSearch, setShowSearch] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
+  const navItems: NavItem[] = React.useMemo(() => [
+    { label: t("sidebar.dashboard"), to: "/", icon: LayoutDashboard, disabled: false, keywords: ["home", "main"] },
+    { label: t("sidebar.timeEntries"), to: "/time/entries", icon: Clock, disabled: false, keywords: ["time", "hours", "timesheet"] },
+    { label: t("sidebar.overtime"), to: "/time/overtime", icon: TrendingUp, disabled: false, keywords: ["ot", "extra"] },
+    { label: t("sidebar.approvals"), to: "/approvals", icon: CheckCircle, disabled: false, requires: "team", keywords: ["approve", "review", "time", "leave"] },
+    { label: t("sidebar.chat"), to: "/chat", icon: MessageCircle, disabled: false, keywords: ["assistant", "ai", "support", "chat"] },
+    { label: t("sidebar.calendar"), to: "/calendar", icon: CalendarDays, disabled: false, requires: "calendar", keywords: ["schedule", "events"] },
+    { label: t("sidebar.myTeam"), to: "/my-team", icon: UserCircle2, disabled: false, requires: "team", keywords: ["team", "people"] },
+    { label: t("sidebar.workflows"), to: "/workflows", icon: GitBranch, disabled: false, keywords: ["automation", "process"] },
+    { label: t("sidebar.members"), to: "/members", icon: Users, disabled: false, keywords: ["people", "directory"] },
+    { label: t("sidebar.employees"), to: "/employees", icon: Users, disabled: false, keywords: ["staff", "workers"] },
+    { label: t("sidebar.settings"), to: "/settings", icon: Settings, disabled: false, keywords: ["config", "preferences"] },
+    { label: t("sidebar.support"), to: "/support", icon: LifeBuoy, disabled: true, keywords: ["help"] },
+  ], [t]);
+
+  const leaveNavItems: NavItem[] = React.useMemo(() => [
+    { label: t("sidebar.myRequests"), to: "/leave/requests", icon: Calendar, disabled: false, keywords: ["leave", "pto", "vacation"] },
+    { label: t("sidebar.teamCalendar"), to: "/leave/team-calendar", icon: CalendarCheck, disabled: false, requires: "team", keywords: ["calendar", "schedule"] },
+    { label: t("sidebar.settings"), to: "/leave/admin", icon: Settings, disabled: false, requires: "calendar", keywords: ["admin", "config"] },
+  ], [t]);
+
+  const recruitingNavItems: NavItem[] = React.useMemo(() => [
+    { label: t("sidebar.jobs"), to: "/recruiting/jobs", icon: Briefcase, disabled: false, keywords: ["jobs", "postings", "positions"] },
+    { label: t("sidebar.analytics"), to: "/recruiting/analytics", icon: TrendingUp, disabled: false, keywords: ["stats", "metrics", "reports"] },
+  ], [t]);
+
   const displayName =
     tenant?.name ??
     session.user.user_metadata?.full_name ??
     session.user.email ??
     session.user.identities?.[0]?.identity_data?.email ??
-    "Workspace";
+    t("common.workspace");
 
   const email =
     session.user.email ??
@@ -262,7 +266,7 @@ export function AppSidebar({
             <Input
               ref={searchInputRef}
               type="text"
-              placeholder="Search pages..."
+              placeholder={t("common.searchPages")}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -312,7 +316,7 @@ export function AppSidebar({
               })}
               {filteredNavItems.length === 0 && (
                 <div className="px-3 py-2 text-sm text-sidebar-foreground/50">
-                  No pages found
+                  {t("common.noPagesFound")}
                 </div>
               )}
             </div>
@@ -323,7 +327,7 @@ export function AppSidebar({
           <div className="px-2 pb-2">
             <SidebarGroupLabel className="flex items-center gap-2">
               <History className="h-3.5 w-3.5" />
-              Recent
+              {t("common.recent")}
             </SidebarGroupLabel>
             <SidebarMenu>
               {recentVisits.slice(0, 3).map((path) => {
@@ -362,7 +366,7 @@ export function AppSidebar({
               className="w-full"
             >
               <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                <span>Workspace</span>
+                <span>{t("sidebar.workspace")}</span>
                 {workspaceCollapsed ? (
                   <ChevronRight className="h-4 w-4" />
                 ) : (
@@ -393,7 +397,7 @@ export function AppSidebar({
                           <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
                           {open ? (
                             <span className="ml-auto rounded-full bg-sidebar-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/70">
-                              Soon
+                              {t("common.soon")}
                             </span>
                           ) : null}
                         </span>
@@ -435,7 +439,7 @@ export function AppSidebar({
               className="w-full mt-4"
             >
               <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                <span>Leave & Absence</span>
+                <span>{t("sidebar.leaveAbsence")}</span>
                 {leaveCollapsed ? (
                   <ChevronRight className="h-4 w-4" />
                 ) : (
@@ -466,7 +470,7 @@ export function AppSidebar({
                           <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
                           {open ? (
                             <span className="ml-auto rounded-full bg-sidebar-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/70">
-                              Soon
+                              {t("common.soon")}
                             </span>
                           ) : null}
                         </span>
@@ -508,7 +512,7 @@ export function AppSidebar({
               className="w-full mt-4"
             >
               <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                <span>Recruiting</span>
+                <span>{t("sidebar.recruiting")}</span>
                 {recruitingCollapsed ? (
                   <ChevronRight className="h-4 w-4" />
                 ) : (
@@ -539,7 +543,7 @@ export function AppSidebar({
                           <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
                           {open ? (
                             <span className="ml-auto rounded-full bg-sidebar-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/70">
-                              Soon
+                              {t("common.soon")}
                             </span>
                           ) : null}
                         </span>
@@ -595,7 +599,7 @@ export function AppSidebar({
               await supabase.auth.signOut();
             }}
             className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-            aria-label="Sign out"
+            aria-label={t("common.signOut")}
           >
             <LogOut className="h-4 w-4" aria-hidden="true" />
           </button>

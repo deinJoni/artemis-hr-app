@@ -18,6 +18,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { ImportWizard } from "~/components/employees/import-wizard";
 import { useToast } from "~/components/toast";
 import type { BulkDeleteInput, BulkStatusUpdateInput, EmploymentStatus } from "@vibe/shared";
+import { useTranslation } from "~/lib/i18n";
 
 const employmentTypes = ["Full-time", "Part-time", "Contractor", "Intern", "Seasonal"] as const;
 const salaryFrequencyOptions = ["per year", "per month", "per week", "per hour"] as const;
@@ -130,6 +131,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Employees({ loaderData }: Route.ComponentProps) {
+  const { t } = useTranslation();
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" }) as { baseUrl: string };
   const revalidator = useRevalidator();
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
@@ -766,7 +768,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
   if (initializing) {
     return (
       <div className="flex flex-1 items-center justify-center py-20 text-sm text-muted-foreground">
-        Loading employees...
+        {t("employees.loadingEmployees")}
       </div>
     );
   }
@@ -780,9 +782,9 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-10">
         <header className="flex flex-col gap-4">
           <div>
-            <h1 className="text-4xl font-semibold text-foreground">Employees</h1>
+            <h1 className="text-4xl font-semibold text-foreground">{t("employees.title")}</h1>
             <p className="text-base text-muted-foreground">
-              A powerful command center to search, sort, and manage your people data.
+              {t("employees.description")}
             </p>
           </div>
           
@@ -793,7 +795,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by name, email, or role..."
+                placeholder={t("employees.searchPlaceholder")}
                 className="h-12 w-full rounded-xl border border-input bg-background pl-12 pr-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
               <svg
@@ -820,7 +822,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 className="h-12 rounded-xl border border-input"
               >
                 <RefreshCw className={cn("mr-2 h-4 w-4", tableLoading && "animate-spin")} />
-                Refresh
+                {t("common.refresh")}
               </Button>
               <Button
                 type="button"
@@ -831,7 +833,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 className="h-12 rounded-xl border border-input"
               >
                 <Download className="mr-2 h-4 w-4" />
-                Export
+                {t("common.export")}
               </Button>
               <Button
                 type="button"
@@ -842,7 +844,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 className="h-12 rounded-xl border border-input"
               >
                 <Upload className="mr-2 h-4 w-4" />
-                Import
+                {t("common.import")}
               </Button>
               <Button
                 type="button"
@@ -852,7 +854,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 disabled={!tenantId || defsLoading}
               >
                 <Plus className="mr-2 h-5 w-5" />
-                Add Employee
+                {t("employees.addEmployee")}
               </Button>
             </div>
           </div>
@@ -868,7 +870,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 className="h-10"
               >
                 <Filter className="mr-2 h-4 w-4" />
-                Filters
+                {t("common.filter")}
                 {(departmentFilter || locationFilter || statusFilter) && (
                   <Badge variant="secondary" className="ml-2">
                     {(departmentFilter ? 1 : 0) + (locationFilter ? 1 : 0) + (statusFilter ? 1 : 0)}
@@ -879,7 +881,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               {selectedEmployees.size > 0 && (
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">
-                    {selectedEmployees.size} selected
+                    {selectedEmployees.size} {t("employees.selected")}
                   </Badge>
                   <Button
                     type="button"
@@ -894,7 +896,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                     ) : (
                       <Download className="mr-2 h-4 w-4" />
                     )}
-                    Export Selected
+                    {t("common.export")}
                   </Button>
                   <Dialog open={bulkStatusDialogOpen} onOpenChange={setBulkStatusDialogOpen}>
                     <DialogTrigger asChild>
@@ -905,39 +907,39 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                         disabled={bulkActionLoading}
                         className="h-10"
                       >
-                        Update Status
+                        {t("employees.changeStatus")}
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Update Status for {selectedEmployees.size} Employee(s)</DialogTitle>
+                        <DialogTitle>{t("employees.statusChange")} {selectedEmployees.size} {t("employees.employees")}</DialogTitle>
                         <DialogDescription>
-                          Select a new status for the selected employees.
+                          {t("employees.selectStatus")}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label htmlFor="bulk-status">New Status *</Label>
+                          <Label htmlFor="bulk-status">{t("common.status")} *</Label>
                           <Select
                             value={bulkStatusValue}
                             onValueChange={(value) => setBulkStatusValue(value as EmploymentStatus)}
                           >
                             <SelectTrigger id="bulk-status">
-                              <SelectValue placeholder="Select status" />
+                              <SelectValue placeholder={t("employees.selectStatus")} />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="active">Active</SelectItem>
-                              <SelectItem value="on_leave">On Leave</SelectItem>
-                              <SelectItem value="terminated">Terminated</SelectItem>
-                              <SelectItem value="inactive">Inactive</SelectItem>
+                              <SelectItem value="active">{t("common.active")}</SelectItem>
+                              <SelectItem value="on_leave">{t("leave.requests")}</SelectItem>
+                              <SelectItem value="terminated">{t("common.delete")}</SelectItem>
+                              <SelectItem value="inactive">{t("common.inactive")}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                         <div>
-                          <Label htmlFor="bulk-status-reason">Reason (Optional)</Label>
+                          <Label htmlFor="bulk-status-reason">{t("leave.reason")} ({t("common.optional")})</Label>
                           <Textarea
                             id="bulk-status-reason"
-                            placeholder="Enter reason for status change..."
+                            placeholder={t("employees.reasonForStatusChange")}
                             value={bulkStatusReason}
                             onChange={(e) => setBulkStatusReason(e.target.value)}
                             rows={3}
@@ -945,7 +947,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                         </div>
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" onClick={() => setBulkStatusDialogOpen(false)}>
-                            Cancel
+                            {t("common.cancel")}
                           </Button>
                           <Button
                             onClick={handleBulkStatusUpdate}
@@ -954,10 +956,10 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                             {bulkActionLoading ? (
                               <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Updating...
+                                {t("common.updating")}
                               </>
                             ) : (
-                              "Update Status"
+                              t("employees.changeStatus")
                             )}
                           </Button>
                         </div>
@@ -974,23 +976,23 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                         className="h-10 text-destructive hover:text-destructive"
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Delete Selected
+                        {t("common.delete")}
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Delete {selectedEmployees.size} Employee(s)?</DialogTitle>
+                        <DialogTitle>{t("common.delete")} {selectedEmployees.size} {t("employees.employees")}?</DialogTitle>
                         <DialogDescription>
-                          This action cannot be undone. This will permanently delete the selected employees.
+                          {t("employees.confirmDelete")}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                         <AlertCircle className="h-4 w-4" />
-                        <span>This action is irreversible.</span>
+                        <span>{t("common.warning")}</span>
                       </div>
                       <div className="flex justify-end gap-2">
                         <Button variant="outline" onClick={() => setBulkDeleteDialogOpen(false)}>
-                          Cancel
+                          {t("common.cancel")}
                         </Button>
                         <Button
                           variant="destructive"
@@ -1000,10 +1002,10 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                           {bulkActionLoading ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Deleting...
+                              {t("common.deleting")}
                             </>
                           ) : (
-                            "Confirm Delete"
+                            t("common.confirm") + " " + t("common.delete")
                           )}
                         </Button>
                       </div>
@@ -1087,7 +1089,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                     }}
                     className="h-10"
                   >
-                    Clear Filters
+                    {t("common.clear")}
                   </Button>
                 </div>
               </div>
@@ -1167,7 +1169,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
 
               {currentStep.id === "personal" ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FieldGroup label="Full Name" required>
+                  <FieldGroup label={t("employees.fullName")} required>
                     <input
                       type="text"
                       value={createForm.personal.fullName}
@@ -1180,7 +1182,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </FieldGroup>
-                  <FieldGroup label="Personal Email" required>
+                  <FieldGroup label={t("employees.personalEmail")} required>
                     <input
                       type="email"
                       value={createForm.personal.personalEmail}
@@ -1193,7 +1195,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </FieldGroup>
-                  <FieldGroup label="Phone Number">
+                  <FieldGroup label={t("employees.phoneNumber")}>
                     <input
                       type="tel"
                       value={createForm.personal.phoneNumber}
@@ -1206,7 +1208,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </FieldGroup>
-                  <FieldGroup label="Home Address" className="md:col-span-2">
+                  <FieldGroup label={t("employees.homeAddress")} className="md:col-span-2">
                     <textarea
                       value={createForm.personal.homeAddress}
                       onChange={(event) =>
@@ -1223,7 +1225,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
 
               {currentStep.id === "job" ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FieldGroup label="Work Email" required>
+                  <FieldGroup label={t("employees.workEmail")} required>
                     <input
                       type="email"
                       value={createForm.job.workEmail}
@@ -1236,7 +1238,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </FieldGroup>
-                  <FieldGroup label="Job Title / Role" required>
+                  <FieldGroup label={t("employees.jobTitle")} required>
                     <input
                       type="text"
                       value={createForm.job.jobTitle}
@@ -1249,7 +1251,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </FieldGroup>
-                  <FieldGroup label="Department">
+                  <FieldGroup label={t("employees.department")}>
                     <select
                       value={createForm.job.department}
                       onChange={(event) =>
@@ -1268,7 +1270,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       ))}
                     </select>
                   </FieldGroup>
-                  <FieldGroup label="Manager">
+                  <FieldGroup label={t("employees.manager")}>
                     <select
                       value={createForm.job.managerId}
                       onChange={(event) =>
@@ -1287,7 +1289,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       ))}
                     </select>
                   </FieldGroup>
-                  <FieldGroup label="Start Date">
+                  <FieldGroup label={t("employees.startDate")}>
                     <input
                       type="date"
                       value={createForm.job.startDate}
@@ -1305,7 +1307,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
 
               {currentStep.id === "compensation" ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FieldGroup label="Employment Type">
+                  <FieldGroup label={t("employees.employmentType")}>
                     <select
                       value={createForm.compensation.employmentType}
                       onChange={(event) =>
@@ -1324,7 +1326,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       ))}
                     </select>
                   </FieldGroup>
-                  <FieldGroup label="Salary / Wage">
+                  <FieldGroup label={t("employees.salaryWage")}>
                     <input
                       type="text"
                       value={createForm.compensation.salary}
@@ -1334,11 +1336,11 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                           compensation: { ...state.compensation, salary: event.target.value },
                         }))
                       }
-                      placeholder="e.g. 120000"
+                      placeholder={t("employees.salaryPlaceholder")}
                       className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </FieldGroup>
-                  <FieldGroup label="Compensation Frequency">
+                  <FieldGroup label={t("employees.compensationFrequency")}>
                     <select
                       value={createForm.compensation.salaryFrequency}
                       onChange={(event) =>
@@ -1356,7 +1358,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       ))}
                     </select>
                   </FieldGroup>
-                  <FieldGroup label="Currency">
+                  <FieldGroup label={t("employees.currency")}>
                     <select
                       value={createForm.compensation.currency}
                       onChange={(event) =>
@@ -1374,7 +1376,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                       ))}
                     </select>
                   </FieldGroup>
-                  <FieldGroup label="Bank Details" className="md:col-span-2">
+                  <FieldGroup label={t("employees.bankDetails")} className="md:col-span-2">
                     <textarea
                       value={createForm.compensation.bankDetails}
                       onChange={(event) =>
@@ -1383,7 +1385,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                           compensation: { ...state.compensation, bankDetails: event.target.value },
                         }))
                       }
-                      placeholder="Account number, routing, IBAN, etc."
+                      placeholder={t("employees.bankDetailsPlaceholder")}
                       className="min-h-[96px] w-full rounded-xl border border-input bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </FieldGroup>
@@ -1437,7 +1439,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               disabled={creating}
               className="rounded-xl"
             >
-              {isFirstStep ? "Cancel" : "Back"}
+              {isFirstStep ? t("common.cancel") : t("common.back")}
             </Button>
             <div className="ml-auto flex items-center gap-3">
               {isLastStep ? (
@@ -1453,10 +1455,10 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                   >
                     {creating ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t("common.saving")}
                       </>
                     ) : (
-                      "Save & Add Another"
+                      t("common.save") + " & " + t("employees.addEmployee")
                     )}
                   </Button>
                   <Button
@@ -1469,10 +1471,10 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                   >
                     {creating ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t("common.creating")}
                       </>
                     ) : (
-                      "Create Employee"
+                      t("employees.addEmployee")
                     )}
                   </Button>
                 </>
@@ -1482,7 +1484,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                   onClick={handleNextStep}
                   className="rounded-xl bg-orange-500 text-orange-50 hover:bg-orange-500/90"
                 >
-                  Next Step
+                  {t("common.next")}
                 </Button>
               )}
             </div>

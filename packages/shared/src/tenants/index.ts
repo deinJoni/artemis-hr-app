@@ -7,13 +7,8 @@ export const TenantSchema = z.object({
   name: z.string(),
   created_at: z.string(),
   company_name: z.string().nullable(),
-  company_location: z.string().nullable(),
   company_size: z.string().nullable(),
-  contact_name: z.string().nullable(),
-  contact_email: z.string().email().nullable(),
-  contact_phone: z.string().nullable(),
-  needs_summary: z.string().nullable(),
-  key_priorities: z.string().nullable(),
+  language: z.string().nullable(),
   onboarding_step: z.number().int().min(0),
   setup_completed: z.boolean(),
   activated_at: z.string().nullable(),
@@ -50,23 +45,33 @@ export const AccountBootstrapResponseSchema = z.object({
 });
 export type AccountBootstrapResponse = z.infer<typeof AccountBootstrapResponseSchema>;
 
+const CompanySizeEnum = z.enum([
+  "1-10",
+  "11-25",
+  "26-100",
+  "101-500",
+  "501-1000",
+  "> 1000",
+]);
+
+const LanguageEnum = z.enum(["German", "English"]);
+
 export const OnboardingStepPayloadSchema = z.discriminatedUnion("step", [
   z.object({
     step: z.literal(1),
     companyName: z.string().min(1),
-    companyLocation: z.string().min(1),
-    companySize: z.string().min(1),
+    companySize: CompanySizeEnum,
+    language: LanguageEnum,
   }),
   z.object({
     step: z.literal(2),
-    contactName: z.string().min(1),
-    contactEmail: z.string().email(),
-    contactPhone: z.string().min(3),
+    firstName: z.string().min(1),
+    lastName: z.string().min(1),
+    companyEmail: z.string().email(),
+    rolePosition: z.string().min(1),
   }),
   z.object({
     step: z.literal(3),
-    needsSummary: z.string().min(3),
-    keyPriorities: z.string().min(3),
   }),
 ]);
 export type OnboardingStepPayload = z.infer<typeof OnboardingStepPayloadSchema>;
@@ -79,13 +84,8 @@ export type OnboardingStepResponse = z.infer<typeof OnboardingStepResponseSchema
 export const TenantUpdateInputSchema = requireAtLeastOneField(
   z.object({
     company_name: z.string().min(1).optional().nullable(),
-    company_location: z.string().min(1).optional().nullable(),
     company_size: z.string().min(1).optional().nullable(),
-    contact_name: z.string().min(1).optional().nullable(),
-    contact_email: z.string().email().optional().nullable(),
-    contact_phone: z.string().min(1).optional().nullable(),
-    needs_summary: z.string().min(1).optional().nullable(),
-    key_priorities: z.string().min(1).optional().nullable(),
+    language: z.string().min(1).optional().nullable(),
   })
 );
 export type TenantUpdateInput = z.infer<typeof TenantUpdateInputSchema>;
