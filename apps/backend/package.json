@@ -6,7 +6,8 @@
     "build": "tsc --noEmit && node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/.placeholder','');\"",
     "lint": "eslint ./src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'no tests yet' && exit 0"
+    "test": "echo 'no tests yet' && exit 0",
+    "vercel-build": "cd ../.. && pnpm run vercel-build"
   },
   "dependencies": {
     "@langchain/core": "^0.3.0",
