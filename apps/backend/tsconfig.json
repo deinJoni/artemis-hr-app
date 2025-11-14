@@ -8,6 +8,7 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "types": ["node", "bun"],
+    "skipLibCheck": true,
     "paths": {
       "@vibe/shared": ["../../packages/shared/src/index.ts"],
       "@database.types.ts": ["../../packages/shared/src/database.types.ts"]
