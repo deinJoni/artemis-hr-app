@@ -336,8 +336,8 @@ export const registerImportRoutes = (app: Hono<Env>) => {
       console.log('[Export] Fetched', employees?.length || 0, 'employees')
 
       // Fetch department names and manager info separately if needed
-      const departmentIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.department_id).filter((id): id is string => Boolean(id)))]
-      const managerIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.manager_id).filter((id): id is string => Boolean(id)))]
+      const departmentIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.department_id).filter((id: string | null): id is string => Boolean(id)))]
+      const managerIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.manager_id).filter((id: string | null): id is string => Boolean(id)))]
       
       const departmentMap = new Map<string, string>()
       const managerMap = new Map<string, { name: string; email: string }>()

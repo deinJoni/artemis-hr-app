@@ -398,7 +398,17 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     if (timeEntriesError) return c.json({ error: timeEntriesError.message }, 400)
 
     // Create employee lookup map
-    const employeeMap = new Map((teamMembers || []).map((emp: { user_id: string | null; name: string; email: string; employee_number: string | null; department_id: string | null; status: string }) => [emp.user_id, emp]))
+    type EmployeeTeamMember = {
+      user_id: string | null
+      name: string
+      email: string
+      employee_number: string | null
+      department_id: string | null
+      status: string
+    }
+    const employeeMap = new Map<string | null, EmployeeTeamMember>(
+      (teamMembers || []).map((emp: EmployeeTeamMember) => [emp.user_id, emp])
+    )
 
     // Build events array
     const events = [
@@ -595,7 +605,16 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
 
     if (employeesError) return c.json({ error: employeesError.message }, 400)
 
-    const employeeMap = new Map((employees || []).map((emp: { user_id: string | null; name: string; email: string; employee_number: string | null; department_id: string | null }) => [emp.user_id, emp]))
+    type EmployeeExport = {
+      user_id: string | null
+      name: string
+      email: string
+      employee_number: string | null
+      department_id: string | null
+    }
+    const employeeMap = new Map<string | null, EmployeeExport>(
+      (employees || []).map((emp: EmployeeExport) => [emp.user_id, emp])
+    )
 
     // Build CSV
     const csvHeaders = [

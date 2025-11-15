@@ -862,6 +862,14 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
     return c.json(parsed.data)
   })
 
+  type CustomFieldDef = {
+    key: string
+    type: string
+    required: boolean
+    options: unknown
+    position: number
+  }
+
   async function validateAndCoerceCustomFields(
     supabase: SupabaseClient<Database>,
     tenantId: string,
@@ -880,8 +888,8 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
 
     if (defs.error) throw new Error(defs.error.message)
 
-    const byKey = new Map(
-      (defs.data ?? []).map((d: { key: string; type: string; required: boolean; options: unknown; position: number }) => [d.key as string, d] as const),
+    const byKey = new Map<string, CustomFieldDef>(
+      (defs.data ?? []).map((d: CustomFieldDef) => [d.key, d] as const),
     )
 
     const raw = input as Record<string, unknown>
