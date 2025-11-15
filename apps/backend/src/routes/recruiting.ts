@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../types'
 
 import {
   JobCreateInputSchema,
@@ -685,7 +687,7 @@ export const registerRecruitingRoutes = (app: Hono<Env>) => {
         const app = interview.applications
         const interviewers = await Promise.all(
           interview.interviewer_ids.map(async (id: string) => {
-            const user = await supabaseAdmin.auth.admin.getUserById(id)
+            const user = await (supabaseAdmin.auth as any).admin.getUserById(id)
             if (user.data.user) {
               return {
                 id: user.data.user.id,

@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../types'
 import type { Database } from '@database.types.ts'
 import {
   ExitInterviewSubmitInputSchema,
@@ -104,7 +106,7 @@ export const registerOffboardingRoutes = (app: Hono<Env>) => {
         return c.json({ checklist: [] })
       }
 
-      const runIds = runs.map((r) => r.id)
+      const runIds = runs.map((r: { id: string }) => r.id)
 
       // Get checklist items (workflow steps)
       const { data: steps, error } = await supabase

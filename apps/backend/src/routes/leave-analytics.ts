@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../types'
 
 import type { Database } from '@database.types.ts'
 import { getPrimaryTenantId } from '../lib/tenant-context'
@@ -244,7 +246,7 @@ export const registerLeaveAnalyticsRoutes = (app: Hono<Env>) => {
       return c.json({ error: totalDaysError.message }, 400);
     }
 
-    const totalDaysTaken = totalDaysData?.reduce((sum, r) => sum + (typeof r.days_count === 'string' ? parseFloat(r.days_count) : (r.days_count || 0)), 0) || 0
+    const totalDaysTaken = totalDaysData?.reduce((sum: number, r: { days_count: number | string | null }) => sum + (typeof r.days_count === 'string' ? parseFloat(r.days_count) : (r.days_count || 0)), 0) || 0
 
     // Get pending requests count
     const { count: pendingCount, error: pendingError } = await supabase

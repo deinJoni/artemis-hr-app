@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../../types'
 
 import {
   CheckInCreateInputSchema,
@@ -77,7 +79,7 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
     }
 
     const teamRows = employees.data ?? []
-    const teamIds = teamRows.map((row) => row.id)
+    const teamIds = teamRows.map((row: { id: string }) => row.id)
 
     const goalStats = new Map<
       string,
@@ -150,7 +152,7 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
 
     }
 
-    const team = teamRows.map((employee) => {
+    const team = teamRows.map((employee: { id: string; tenant_id: string; name: string; email: string; manager_id: string | null }) => {
       const summary = goalStats.get(employee.id)
       const avgProgressPct =
         summary && summary.progressCount > 0
@@ -753,7 +755,7 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
       return c.json({ error: rows.error.message }, 400)
     }
 
-    const items = (rows.data ?? []).map((row) => {
+    const items = (rows.data ?? []).map((row: any) => {
       const checkIn = mapCheckInRow(row as CheckInWithRelations)
       return {
         checkIn,
@@ -845,7 +847,7 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
       return c.json({ error: rows.error.message }, 400)
     }
 
-    const items = (rows.data ?? []).map((row) => {
+    const items = (rows.data ?? []).map((row: any) => {
       const checkIn = mapCheckInRow(row as CheckInWithRelations)
       return {
         checkIn,
@@ -879,7 +881,7 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
     if (defs.error) throw new Error(defs.error.message)
 
     const byKey = new Map(
-      (defs.data ?? []).map((d) => [d.key as string, d] as const),
+      (defs.data ?? []).map((d: { key: string; type: string; required: boolean; options: unknown; position: number }) => [d.key as string, d] as const),
     )
 
     const raw = input as Record<string, unknown>
@@ -891,7 +893,7 @@ export const registerPerformanceRoutes = (app: Hono<Env>) => {
         // Ignore undefined custom fields to keep API lenient; definitions control allowed keys.
         continue
       }
-      output[key] = coerceCustomFieldValue(def.type as EmployeeCustomFieldType, value, def.options)
+      output[key] = coerceCustomFieldValue(def.type as EmployeeCustomFieldType, value, def.options as unknown)
     }
 
     // Ensure required fields present (when definitions require)

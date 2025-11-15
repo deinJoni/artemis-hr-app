@@ -42,9 +42,7 @@ import {
 } from '@vibe/shared'
 
 import type { Database, Json } from '@database.types.ts'
-
-// Get User type from auth.getUser response (non-null since we check for user existence)
-type User = NonNullable<Awaited<ReturnType<SupabaseClient<Database>['auth']['getUser']>>['data']['user']>
+import type { User } from '../../types'
 
 import { AuditLogger, extractRequestInfo, findChanges } from '../../lib/audit-logger'
 import { supabaseAdmin } from '../../lib/supabase'

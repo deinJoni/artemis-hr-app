@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../../types'
 
 import {
   ApproveTimeOffRequestInputSchema,
@@ -353,7 +355,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     const { data: teamMembers, error: teamError } = await teamQuery
     if (teamError) return c.json({ error: teamError.message }, 400)
 
-    const teamUserIds = (teamMembers || []).map(m => m.user_id)
+    const teamUserIds = (teamMembers || []).map((m: { user_id: string | null }) => m.user_id)
 
     // Get approved time off overlapping range
     let timeOffQuery = supabase
@@ -365,7 +367,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
       .gte('end_date', startDate.toISOString())
 
     if (teamUserIds.length > 0) {
-      const validUserIds = teamUserIds.filter((id): id is string => id !== null)
+      const validUserIds = teamUserIds.filter((id: string | null): id is string => id !== null)
       if (validUserIds.length > 0) {
         timeOffQuery = timeOffQuery.in('user_id', validUserIds)
       }
@@ -386,7 +388,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
       .or(`clock_out_at.is.null,clock_out_at.gte.${startDate.toISOString()}`)
 
     if (teamUserIds.length > 0) {
-      const validUserIds = teamUserIds.filter((id): id is string => id !== null)
+      const validUserIds = teamUserIds.filter((id: string | null): id is string => id !== null)
       if (validUserIds.length > 0) {
         timeEntriesQuery = timeEntriesQuery.in('user_id', validUserIds)
       }
@@ -396,11 +398,11 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     if (timeEntriesError) return c.json({ error: timeEntriesError.message }, 400)
 
     // Create employee lookup map
-    const employeeMap = new Map((teamMembers || []).map(emp => [emp.user_id, emp]))
+    const employeeMap = new Map((teamMembers || []).map((emp: { user_id: string | null; name: string; email: string; employee_number: string | null; department_id: string | null; status: string }) => [emp.user_id, emp]))
 
     // Build events array
     const events = [
-      ...((timeOff || []).map((r) => {
+      ...((timeOff || []).map((r: { id: string; user_id: string; start_date: string; end_date: string; leave_type: string; status: string }) => {
         const evStart = new Date(r.start_date)
         evStart.setUTCHours(0, 0, 0, 0)
         const evEnd = new Date(r.end_date)
@@ -420,7 +422,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
           employeeNumber: employee?.employee_number,
         }
       })),
-      ...((timeEntries || []).map((e) => {
+      ...((timeEntries || []).map((e: { id: string; user_id: string; clock_in_at: string; clock_out_at: string | null; break_minutes: number; project_task: string | null; notes: string | null; entry_type: string; approval_status: string }) => {
         const employee = employeeMap.get(e.user_id)
         const duration = e.clock_out_at ? 
           Math.max(0, new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / (1000 * 60) : 0
@@ -585,7 +587,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     if (timeEntriesError) return c.json({ error: timeEntriesError.message }, 400)
 
     // Get employee data
-    const userIds = [...new Set((timeEntries || []).map(e => e.user_id))]
+    const userIds = [...new Set((timeEntries || []).map((e: { user_id: string; clock_in_at: string; clock_out_at: string | null; break_minutes: number; project_task: string | null; notes: string | null; entry_type: string; approval_status: string; created_at: string }) => e.user_id))]
     const { data: employees, error: employeesError } = await supabase
       .from('employees')
       .select('user_id, name, email, employee_number, department_id')
@@ -593,7 +595,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
 
     if (employeesError) return c.json({ error: employeesError.message }, 400)
 
-    const employeeMap = new Map((employees || []).map(emp => [emp.user_id, emp]))
+    const employeeMap = new Map((employees || []).map((emp: { user_id: string | null; name: string; email: string; employee_number: string | null; department_id: string | null }) => [emp.user_id, emp]))
 
     // Build CSV
     const csvHeaders = [
@@ -615,7 +617,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
       csvHeaders.push('Notes')
     }
 
-    const csvRows = (timeEntries || []).map(entry => {
+    const csvRows = (timeEntries || []).map((entry: { id: string; user_id: string; clock_in_at: string; clock_out_at: string | null; break_minutes: number; project_task: string | null; notes: string | null; entry_type: string; approval_status: string; created_at: string }) => {
       const employee = employeeMap.get(entry.user_id)
       const clockIn = new Date(entry.clock_in_at)
       const clockOut = entry.clock_out_at ? new Date(entry.clock_out_at) : null
@@ -646,7 +648,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     })
 
     const csvContent = [csvHeaders, ...csvRows]
-      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .map((row: (string | number)[]) => row.map((cell: string | number) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n')
 
     c.header('Content-Type', 'text/csv')
@@ -1707,7 +1709,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
 
     // Enrich with requester display_name
     const enriched = await Promise.all(
-      (rows.data ?? []).map(async (r) => {
+      (rows.data ?? []).map(async (r: { id: string; user_id: string; start_date: string; end_date: string; leave_type: string; status: string; created_at: string }) => {
         const prof = await supabase
           .from('profiles')
           .select('display_name, user_id')
@@ -1740,7 +1742,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
 
     if (rows.error) return c.json({ error: rows.error.message }, 400)
 
-    const parsed = rows.data?.map((r) => EmployeeCustomFieldDefSchema.parse(r)) ?? []
+    const parsed = rows.data?.map((r: Database['public']['Tables']['employee_custom_field_defs']['Row']) => EmployeeCustomFieldDefSchema.parse(r)) ?? []
     return c.json({ fields: parsed })
   })
 
@@ -2159,7 +2161,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
 
     if (teamError) return c.json({ error: teamError.message }, 400)
 
-    const teamMemberIds = teamMembers.map(m => m.id)
+    const teamMemberIds = teamMembers.map((m: { id: string }) => m.id)
 
     const { data: balances, error } = await supabase
       .from('leave_balance_summary')
@@ -2606,7 +2608,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     }
 
     if (overlappingRequests && overlappingRequests.length > 0) {
-      const overlapDetails = overlappingRequests.map(req => 
+      const overlapDetails = overlappingRequests.map((req: { id: string; start_date: string; end_date: string; status: string; leave_type_id: string | null }) => 
         `${format(new Date(req.start_date), 'MMM d')} - ${format(new Date(req.end_date), 'MMM d')}`
       ).join(', ')
       return c.json({ 
@@ -3059,7 +3061,7 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     }
 
     // Transform requests to calendar events
-    const events = (requests || []).map(req => ({
+    const events = (requests || []).map((req: any) => ({
       id: `request-${req.id}`,
       title: `${req.employee_name} - ${req.leave_type_name}`,
       start: req.start_date,
@@ -3088,8 +3090,8 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
 
     const summary = {
       total_requests: events.length,
-      pending_requests: events.filter(e => e.status === 'pending').length,
-      approved_requests: events.filter(e => e.status === 'approved').length,
+      pending_requests: events.filter((e: any) => e.status === 'pending').length,
+      approved_requests: events.filter((e: any) => e.status === 'approved').length,
       total_holidays: holidayEvents.length,
     }
 

@@ -1,9 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import type { Database } from '@database.types.ts'
-
-// Get User type from auth.getUser response (non-null since we check for user existence)
-type User = NonNullable<Awaited<ReturnType<SupabaseClient<Database>['auth']['getUser']>>['data']['user']>
+import type { User } from '../types'
 
 export type EmployeeRow = Database['public']['Tables']['employees']['Row']
 

@@ -48,9 +48,9 @@ export const registerMembershipRoutes = (app: Hono<Env>) => {
     if (rows.error) return c.json({ error: rows.error.message }, 400)
 
     const members = await Promise.all(
-      (rows.data ?? []).map(async (m) => {
+      (rows.data ?? []).map(async (m: { user_id: string; tenant_id: string; role: string; created_at: string }) => {
         try {
-          const user = await supabaseAdmin.auth.admin.getUserById(m.user_id)
+          const user = await (supabaseAdmin.auth as any).admin.getUserById(m.user_id)
           const email = user.data.user?.email ?? null
           return { ...m, email }
         } catch {

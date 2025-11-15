@@ -11,9 +11,7 @@ import {
 
 import type { Database } from '@database.types.ts'
 import { getEmployeeForUser, hasPermission } from '../../../lib/tenant-context'
-
-// Get User type from auth.getUser response (non-null since we check for user existence)
-type User = NonNullable<Awaited<ReturnType<SupabaseClient<Database>['auth']['getUser']>>['data']['user']>
+import type { User } from '../../../types'
 
 type GoalRow = Database['public']['Tables']['goals']['Row']
 type GoalKeyResultRow = Database['public']['Tables']['goal_key_results']['Row']
@@ -47,7 +45,7 @@ export async function fetchGoalsForEmployee(
     .order('created_at', { ascending: true })
 
   if (res.error) throw new Error(res.error.message)
-  return (res.data ?? []).map((row) => mapGoalRow(row as GoalWithRelations))
+  return (res.data ?? []).map((row: any) => mapGoalRow(row as GoalWithRelations))
 }
 
 export async function fetchGoalById(

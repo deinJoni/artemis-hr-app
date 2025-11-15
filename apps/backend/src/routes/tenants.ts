@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../types'
 
 import {
   AccountBootstrapInputSchema,
@@ -275,6 +277,9 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
     if (!tenantId) {
       try {
         tenantRecord = await attemptTenantCreation()
+        if (!tenantRecord) {
+          return c.json({ error: 'Unable to create tenant' }, 400)
+        }
         tenantId = tenantRecord.id
         created = true
       } catch (error: unknown) {
@@ -521,7 +526,7 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
           if (employee.data) {
             const employeeId = employee.data.id
             // Create leave balances for each leave type
-            const balanceInserts = leaveTypes.data.map(async (lt) => {
+            const balanceInserts = leaveTypes.data.map(async (lt: { id: string; code: string }) => {
               const code = lt.code as keyof typeof defaultBalances
               const defaultBalance = defaultBalances[code] ?? 0
               

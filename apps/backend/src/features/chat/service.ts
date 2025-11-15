@@ -161,7 +161,7 @@ export async function listConversations(
     return []
   }
 
-  return data.map((conversation) => ({
+  return data.map((conversation: { id: string; title: string | null; updated_at: string }) => ({
     id: conversation.id,
     name: conversation.title ?? null,
     last_updated: conversation.updated_at,

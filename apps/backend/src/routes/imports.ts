@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../types'
 
 import {
   CSVExportRequestSchema,
@@ -200,7 +202,7 @@ export const registerImportRoutes = (app: Hono<Env>) => {
           } else {
             // Create new employee
             // First create user account
-            const invite = await supabaseAdmin.auth.admin.inviteUserByEmail(employeeData.email, {
+            const invite = await (supabaseAdmin.auth as any).admin.inviteUserByEmail(employeeData.email, {
               data: { display_name: employeeData.name },
             })
             if (invite.error) {
@@ -334,8 +336,8 @@ export const registerImportRoutes = (app: Hono<Env>) => {
       console.log('[Export] Fetched', employees?.length || 0, 'employees')
 
       // Fetch department names and manager info separately if needed
-      const departmentIds = [...new Set((employees || []).map(emp => emp.department_id).filter((id): id is string => Boolean(id)))]
-      const managerIds = [...new Set((employees || []).map(emp => emp.manager_id).filter((id): id is string => Boolean(id)))]
+      const departmentIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.department_id).filter((id): id is string => Boolean(id)))]
+      const managerIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.manager_id).filter((id): id is string => Boolean(id)))]
       
       const departmentMap = new Map<string, string>()
       const managerMap = new Map<string, { name: string; email: string }>()
@@ -348,7 +350,7 @@ export const registerImportRoutes = (app: Hono<Env>) => {
         if (deptError) {
           console.error('Error fetching departments:', deptError)
         } else if (departments) {
-          departments.forEach(dept => departmentMap.set(dept.id, dept.name))
+          departments.forEach((dept: { id: string; name: string }) => departmentMap.set(dept.id, dept.name))
         }
       }
       
@@ -360,7 +362,7 @@ export const registerImportRoutes = (app: Hono<Env>) => {
         if (mgrError) {
           console.error('Error fetching managers:', mgrError)
         } else if (managers) {
-          managers.forEach(mgr => managerMap.set(mgr.id, { name: mgr.name || '', email: mgr.email || '' }))
+          managers.forEach((mgr: { id: string; name: string | null; email: string | null }) => managerMap.set(mgr.id, { name: mgr.name || '', email: mgr.email || '' }))
         }
       }
 
@@ -385,7 +387,7 @@ export const registerImportRoutes = (app: Hono<Env>) => {
         headers.push('salary_amount', 'salary_currency', 'salary_frequency')
       }
 
-      const csvRows = employees?.map(emp => {
+      const csvRows = employees?.map((emp: Database['public']['Tables']['employees']['Row']) => {
         const manager = emp.manager_id ? managerMap.get(emp.manager_id) : null
         const departmentName = emp.department_id ? departmentMap.get(emp.department_id) : ''
         
@@ -413,7 +415,7 @@ export const registerImportRoutes = (app: Hono<Env>) => {
 
       const csvContent = [
         headers.join(','),
-        ...csvRows.map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+        ...csvRows.map((row: (string | number)[]) => row.map((field: string | number) => `"${String(field).replace(/"/g, '""')}"`).join(','))
       ].join('\n')
 
       const filename = `employees_export_${new Date().toISOString().split('T')[0]}.csv`

@@ -1,5 +1,7 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import type { User } from '../types'
 import type { Database, Json } from '@database.types.ts'
 import {
   TaskListResponseSchema,
@@ -208,7 +210,7 @@ export const registerOnboardingRoutes = (app: Hono<Env>) => {
         return c.json({ tasks: [] })
       }
 
-      const runIds = runs.map((r) => r.id)
+      const runIds = runs.map((r: { id: string }) => r.id)
 
       // Get steps that are tasks (waiting_input status)
       const { data: steps, error } = await supabase
@@ -223,7 +225,7 @@ export const registerOnboardingRoutes = (app: Hono<Env>) => {
       }
 
       // Transform to Task format
-      const tasks: Task[] = (steps || []).map((step) => ({
+      const tasks: Task[] = (steps || []).map((step: Database['public']['Tables']['workflow_run_steps']['Row']) => ({
         id: step.id,
         run_id: step.run_id,
         node_id: step.node_id,

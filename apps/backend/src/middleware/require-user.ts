@@ -26,7 +26,7 @@ export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   }
 
   try {
-    const { data, error } = await supabaseAdmin.auth.getUser(token)
+    const { data, error } = await (supabaseAdmin.auth as any).getUser(token)
     
     if (error) {
       console.error('Auth error:', error.message)

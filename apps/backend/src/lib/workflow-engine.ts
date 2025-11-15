@@ -675,7 +675,7 @@ export class WorkflowEngine {
       .eq('status', 'completed')
 
     const completedNodeIds = new Set(
-      (completedSteps || []).map((s) => s.node_id),
+      (completedSteps || []).map((s: { node_id: string }) => s.node_id),
     )
 
     // Find next steps (nodes connected from completed nodes)
@@ -714,7 +714,7 @@ export class WorkflowEngine {
       // Process the step
       await this.processStep({
         runId,
-        nodeId: workflowNodeId,
+        nodeId: workflowNodeId as string,
         definitionNodeId: nodeKey,
         tenantId: (run as any).tenant_id,
         employeeId: (run as any).employee_id || undefined,
