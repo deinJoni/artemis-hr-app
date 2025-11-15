@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 import {
   BulkDeleteInputSchema,
@@ -42,6 +42,10 @@ import {
 } from '@vibe/shared'
 
 import type { Database, Json } from '@database.types.ts'
+
+// Get User type from auth.getUser response (non-null since we check for user existence)
+type User = NonNullable<Awaited<ReturnType<SupabaseClient<Database>['auth']['getUser']>>['data']['user']>
+
 import { AuditLogger, extractRequestInfo, findChanges } from '../../lib/audit-logger'
 import { supabaseAdmin } from '../../lib/supabase'
 import { WorkflowEngine } from '../../lib/workflow-engine'
@@ -166,7 +170,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     
     let teams: any[] = []
     if (teamMembers.data && teamMembers.data.length > 0) {
-      const teamIds = teamMembers.data.map(tm => tm.team_id)
+      const teamIds = teamMembers.data.map((tm: { team_id: string }) => tm.team_id)
       const teamsResult = await supabase
         .from('teams')
         .select('*')
@@ -194,7 +198,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
       auditLog = audit.data || []
     }
 
-    const managerOptions = (managerRows.data ?? []).map((row) => ({
+    const managerOptions = (managerRows.data ?? []).map((row: { id: string; name?: string | null; email?: string | null }) => ({
       id: row.id,
       label: row.name?.length ? row.name : row.email,
     }))
@@ -590,7 +594,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     let newUserId: string | null = null
     let isExistingUser = false
 
-    const invite = await supabaseAdmin.auth.admin.inviteUserByEmail(parsed.data.email, {
+    const invite = await (supabaseAdmin.auth as any).admin.inviteUserByEmail(parsed.data.email, {
       data: { display_name: parsed.data.name },
     })
 
@@ -602,8 +606,8 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
           errorMessage.includes('user already exists') ||
           errorMessage.includes('already been registered')) {
         // User exists, find them by email
-        const usersList = await supabaseAdmin.auth.admin.listUsers()
-        const userByEmail = usersList.data.users.find(u => u.email?.toLowerCase() === parsed.data.email.toLowerCase())
+        const usersList = await (supabaseAdmin.auth as any).admin.listUsers()
+        const userByEmail = usersList.data.users.find((u: { email?: string }) => u.email?.toLowerCase() === parsed.data.email.toLowerCase())
         
         if (userByEmail) {
           newUserId = userByEmail.id
@@ -970,7 +974,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
       return c.json({ error: fetchError.message }, 400)
     }
 
-    const foundIds = new Set(employees?.map((e) => e.id) || [])
+    const foundIds = new Set(employees?.map((e: { id: string }) => e.id) || [])
     const notFound = employee_ids.filter((id) => !foundIds.has(id))
 
     if (notFound.length > 0) {
@@ -985,7 +989,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
 
     for (const employeeId of employee_ids) {
       try {
-        const employee = employees?.find((e) => e.id === employeeId)
+        const employee = employees?.find((e: { id: string }) => e.id === employeeId)
         const del = await supabase
           .from('employees')
           .delete()
@@ -1052,7 +1056,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
       return c.json({ error: fetchError.message }, 400)
     }
 
-    const foundIds = new Set(employees?.map((e) => e.id) || [])
+    const foundIds = new Set(employees?.map((e: { id: string }) => e.id) || [])
     const notFound = employee_ids.filter((id) => !foundIds.has(id))
 
     if (notFound.length > 0) {
@@ -1067,7 +1071,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
 
     for (const employeeId of employee_ids) {
       try {
-        const employee = employees?.find((e) => e.id === employeeId)
+        const employee = employees?.find((e: { id: string; status?: string | null }) => e.id === employeeId)
         if (!employee) continue
 
         const oldStatus = employee.status
@@ -1469,7 +1473,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
 
     // Get member counts for each team
     const teamsWithCounts = await Promise.all(
-      (teams.data || []).map(async (team) => {
+      (teams.data || []).map(async (team: { id: string; [key: string]: unknown }) => {
         const memberCount = await supabase
           .from('team_members')
           .select('*', { count: 'exact', head: true })
@@ -1784,8 +1788,16 @@ const validateAndCoerceCustomFields = async (
 
   if (definitions.error) throw new Error(definitions.error.message)
 
-  const byKey = new Map(
-    (definitions.data ?? []).map((def) => [def.key as string, def] as const),
+  type CustomFieldDef = {
+    key: string
+    type: string
+    required?: boolean | null
+    options?: unknown
+    position?: number | null
+  }
+
+  const byKey = new Map<string, CustomFieldDef>(
+    (definitions.data ?? []).map((def: CustomFieldDef) => [def.key as string, def] as const),
   )
 
   const raw = input as Record<string, unknown>

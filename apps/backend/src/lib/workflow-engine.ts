@@ -686,7 +686,7 @@ export class WorkflowEngine {
       .eq('version_id', (run as any).version_id)
 
     const nodeKeyToIdMap = new Map(
-      (allNodes || []).map((n) => [n.node_key, n.id])
+      (allNodes || []).map((n: { node_key: string; id: string }) => [n.node_key, n.id])
     )
 
     const nextNodeKeys: string[] = []
@@ -718,7 +718,7 @@ export class WorkflowEngine {
         definitionNodeId: nodeKey,
         tenantId: (run as any).tenant_id,
         employeeId: (run as any).employee_id || undefined,
-        config: node.config || {},
+        config: (node.config || {}) as Record<string, unknown>,
         context: ((run as any).context || {}) as Record<string, unknown>,
       })
     }
@@ -733,7 +733,7 @@ export class WorkflowEngine {
       allSteps &&
       allSteps.length > 0 &&
       allSteps.every(
-        (s) =>
+        (s: { status: string }) =>
           s.status === 'completed' ||
           s.status === 'failed' ||
           s.status === 'canceled',
