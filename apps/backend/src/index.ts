@@ -25,6 +25,8 @@ const app = new Hono<Env>()
 app.use('*', corsMiddleware)
 
 app.get('/', (c) => c.text('Hello Hono!'))
+app.get('/api', (c) => c.text('Hello Hono!'))
+app.get('/api/', (c) => c.text('Hello Hono!'))
 
 app.use('/api/*', requireUser)
 
@@ -44,5 +46,15 @@ registerEquipmentRoutes(app)
 registerAccessRoutes(app)
 registerRecruitingRoutes(app)
 registerChatRoutes(app)
+
+// Catch-all 404 handler for debugging
+app.notFound((c) => {
+  return c.json({ 
+    error: 'Not Found', 
+    path: c.req.path,
+    method: c.req.method,
+    url: c.req.url
+  }, 404)
+})
 
 export default app
