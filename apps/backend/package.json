@@ -1,5 +1,6 @@
 {
   "name": "backend",
+  "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env.local run --hot src/server.ts",
     "start": "bun --env-file=../../.env.local run src/server.ts",

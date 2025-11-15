@@ -2549,52 +2549,34 @@ export type Database = {
       tenants: {
         Row: {
           activated_at: string | null
-          company_location: string | null
           company_name: string | null
           company_size: string | null
-          contact_email: string | null
-          contact_name: string | null
-          contact_phone: string | null
           created_at: string
           id: string
-          key_priorities: string | null
           language: string | null
           name: string
-          needs_summary: string | null
           onboarding_step: number
           setup_completed: boolean
         }
         Insert: {
           activated_at?: string | null
-          company_location?: string | null
           company_name?: string | null
           company_size?: string | null
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
           created_at?: string
           id?: string
-          key_priorities?: string | null
           language?: string | null
           name: string
-          needs_summary?: string | null
           onboarding_step?: number
           setup_completed?: boolean
         }
         Update: {
           activated_at?: string | null
-          company_location?: string | null
           company_name?: string | null
           company_size?: string | null
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
           created_at?: string
           id?: string
-          key_priorities?: string | null
           language?: string | null
           name?: string
-          needs_summary?: string | null
           onboarding_step?: number
           setup_completed?: boolean
         }
@@ -4001,17 +3983,12 @@ export type Database = {
         Args: { p_name: string }
         Returns: {
           activated_at: string | null
-          company_location: string | null
           company_name: string | null
           company_size: string | null
-          contact_email: string | null
-          contact_name: string | null
-          contact_phone: string | null
           created_at: string
           id: string
-          key_priorities: string | null
+          language: string | null
           name: string
-          needs_summary: string | null
           onboarding_step: number
           setup_completed: boolean
         }
