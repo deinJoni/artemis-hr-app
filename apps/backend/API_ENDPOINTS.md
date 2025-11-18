@@ -24,6 +24,13 @@ All `/api` routes are protected by the authentication middleware configured in `
 | GET | `/api/permissions/:tenantId` | Checks whether the user has a specific permission in the tenant (requires `?permission=...`). |
 | PUT | `/api/tenants/:id` | Updates tenant profile information (name, contact details, etc.). |
 
+## Feature Flags
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/api/features` | Returns the current tenant's resolved feature flags (default + override metadata). |
+| GET | `/api/admin/features` | Superadmin endpoint that lists every tenant with their effective feature flags. |
+| PUT | `/api/admin/features/:tenantId/:featureSlug` | Creates/removes a tenant override for the given feature slug (superadmin only). |
+
 ## Memberships
 | Method | Path | Description |
 | --- | --- | --- |

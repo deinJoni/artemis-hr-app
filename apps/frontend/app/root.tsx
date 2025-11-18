@@ -40,6 +40,8 @@ import { supabase } from "~/lib/supabase";
 import { cn } from "~/lib/utils";
 import "./app.css";
 import { ApiProvider } from "~/lib/api-context";
+import { FeatureFlagProvider } from "~/lib/feature-flags";
+import { FeatureGate, type FeatureSlug } from "~/components/feature-gate";
 import { ToastProvider } from "~/components/toast";
 import { setAuthCookie } from "~/lib/set-auth-cookie";
 import { i18n, useTranslation } from "~/lib/i18n"; // Initialize i18n
@@ -53,6 +55,45 @@ const DEFAULT_BACKEND_URL =
   "http://localhost:8787";
 
 const API_BASE_URL = DEFAULT_BACKEND_URL.replace(/\/$/, "");
+
+const FEATURE_ROUTE_MAP: Array<{
+  slug: FeatureSlug;
+  patterns: RegExp[];
+  defaultEnabled?: boolean;
+}> = [
+  {
+    slug: "core_hr",
+    patterns: [
+      /^\/members\b/i,
+      /^\/employees\b/i,
+      /^\/my-team\b/i,
+      /^\/departments\b/i,
+      /^\/teams\b/i,
+      /^\/office-locations\b/i,
+    ],
+    defaultEnabled: true,
+  },
+  {
+    slug: "time_attendance",
+    patterns: [/^\/time\b/i, /^\/calendar\b/i, /^\/team-calendar\b/i, /^\/approvals\b/i],
+    defaultEnabled: true,
+  },
+  {
+    slug: "leave_management",
+    patterns: [/^\/leave\b/i],
+    defaultEnabled: true,
+  },
+  {
+    slug: "recruiting",
+    patterns: [/^\/recruiting\b/i],
+    defaultEnabled: false,
+  },
+  {
+    slug: "workflows",
+    patterns: [/^\/workflows\b/i, /^\/journeys\b/i],
+    defaultEnabled: false,
+  },
+];
 
 // Validate API base URL at module load time
 if (!API_BASE_URL || API_BASE_URL.trim() === "") {
@@ -167,6 +208,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const [session, setSession] = React.useState<Session | null>(null);
   const [checkingSession, setCheckingSession] = React.useState(true);
   const [tenant, setTenant] = React.useState<AccountBootstrapResponse["tenant"] | null>(null);
+  const [featureFlags, setFeatureFlags] = React.useState<AccountBootstrapResponse["features"]>([]);
+  const [isSuperadmin, setIsSuperadmin] = React.useState(false);
   const [tenantStatus, setTenantStatus] = React.useState<"idle" | "loading" | "ready" | "error">(
     "idle"
   );
@@ -206,6 +249,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (!session) {
       setTenant(null);
+      setFeatureFlags([]);
+      setIsSuperadmin(false);
       setTenantStatus("idle");
       setTenantError(null);
       return;
@@ -266,6 +311,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
 
         setTenant(parsed.data.tenant);
+        setFeatureFlags(parsed.data.features);
+        setIsSuperadmin(parsed.data.is_superadmin);
         setTenantStatus(parsed.data.tenant.setup_completed ? "ready" : "idle");
       } catch (error: unknown) {
         if (cancelled) return;
@@ -318,14 +365,21 @@ function AppShell({ children }: { children: React.ReactNode }) {
     );
   } else {
     content = (
-      <AuthenticatedLayout
-        session={session}
-        tenant={tenant!}
-        tenantError={tenantStatus === "error" ? tenantError : null}
-        pathname={location.pathname}
+      <FeatureFlagProvider
+        tenantId={tenant?.id ?? null}
+        initialFeatures={featureFlags}
+        isSuperadmin={isSuperadmin}
       >
-        {children}
-      </AuthenticatedLayout>
+        <AuthenticatedLayout
+          session={session}
+          tenant={tenant!}
+          tenantError={tenantStatus === "error" ? tenantError : null}
+          pathname={location.pathname}
+          isSuperadmin={isSuperadmin}
+        >
+          {children}
+        </AuthenticatedLayout>
+      </FeatureFlagProvider>
     );
   }
 
@@ -383,6 +437,7 @@ type AuthenticatedLayoutProps = {
   tenant: AccountBootstrapResponse["tenant"];
   tenantError: string | null;
   pathname: string;
+  isSuperadmin: boolean;
 };
 
 function AuthenticatedLayout({
@@ -391,9 +446,23 @@ function AuthenticatedLayout({
   tenant,
   tenantError,
   pathname,
+  isSuperadmin,
 }: AuthenticatedLayoutProps) {
   const { t } = useTranslation();
   const breadcrumbs = React.useMemo(() => buildBreadcrumbs(pathname), [pathname]);
+  const featureGate = React.useMemo(() => {
+    return FEATURE_ROUTE_MAP.find((entry) =>
+      entry.patterns.some((pattern) => pattern.test(pathname))
+    );
+  }, [pathname]);
+  const gatedChildren = React.useMemo(() => {
+    if (!featureGate) return children;
+    return (
+      <FeatureGate slug={featureGate.slug} defaultEnabled={featureGate.defaultEnabled}>
+        {children}
+      </FeatureGate>
+    );
+  }, [children, featureGate]);
 
   // Simple role guard: allow Calendar only for manager+ when we can check via backend
   const [canViewCalendar, setCanViewCalendar] = React.useState<boolean>(false);
@@ -440,6 +509,7 @@ function AuthenticatedLayout({
           tenant={tenant}
           canViewCalendar={canViewCalendar}
           canManageTeam={canManageTeam}
+          isSuperadmin={isSuperadmin}
         />
         <SidebarInset>
           <div className="flex min-h-screen flex-col">
@@ -500,7 +570,7 @@ function AuthenticatedLayout({
               </div>
             ) : null}
             <main className="flex flex-1 flex-col gap-4 p-4 pb-8 pt-4 sm:p-6 sm:pt-4">
-              {children}
+              {gatedChildren}
             </main>
           </div>
         </SidebarInset>

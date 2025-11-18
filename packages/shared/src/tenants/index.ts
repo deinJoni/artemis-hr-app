@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireAtLeastOneField } from "../common/validators";
+import { TenantFeatureFlagSchema } from "../features";
 
 export const TenantSchema = z.object({
   id: z.string().uuid(),
@@ -42,6 +43,8 @@ export const AccountBootstrapResponseSchema = z.object({
   tenant: TenantSchema,
   profile: ProfileSchema,
   created: z.boolean(),
+  features: z.array(TenantFeatureFlagSchema),
+  is_superadmin: z.boolean(),
 });
 export type AccountBootstrapResponse = z.infer<typeof AccountBootstrapResponseSchema>;
 

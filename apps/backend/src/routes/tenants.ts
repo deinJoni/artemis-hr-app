@@ -17,6 +17,7 @@ import {
 
 import type { Database } from '@database.types.ts'
 import { supabaseAdmin } from '../lib/supabase'
+import { fetchTenantFeatures } from '../lib/features'
 import type { Env } from '../types'
 
 type ProfileSummary = Pick<
@@ -309,10 +310,22 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
       return c.json({ error: message }, 400)
     }
 
+    let features
+    try {
+      features = await fetchTenantFeatures(supabase, tenantId)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to load feature flags'
+      return c.json({ error: message }, 500)
+    }
+
+    const isSuperadmin = c.get('superadmin') ?? false
+
     const output = AccountBootstrapResponseSchema.safeParse({
       tenant: tenantRecord,
       profile: profileRecord,
       created,
+      features,
+      is_superadmin: isSuperadmin,
     })
 
     if (!output.success) {

@@ -10,5 +10,6 @@ export type Env = {
     user: User
     userToken: string
     supabase: SupabaseClient<Database>
+    superadmin: boolean
   }
 }

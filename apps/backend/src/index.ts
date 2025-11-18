@@ -17,6 +17,7 @@ import { registerOffboardingRoutes } from './routes/offboarding'
 import { registerEquipmentRoutes } from './routes/equipment'
 import { registerAccessRoutes } from './routes/access'
 import { registerRecruitingRoutes } from './routes/recruiting'
+import { registerFeatureRoutes } from './routes/features'
 import { registerChatRoutes } from './features/chat/router'
 import { corsMiddleware } from './middleware/cors'
 
@@ -45,6 +46,7 @@ registerOffboardingRoutes(app)
 registerEquipmentRoutes(app)
 registerAccessRoutes(app)
 registerRecruitingRoutes(app)
+registerFeatureRoutes(app)
 registerChatRoutes(app)
 
 // Catch-all 404 handler for debugging

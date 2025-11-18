@@ -3977,6 +3977,149 @@ export type Database = {
           },
         ]
       }
+      feature_groups: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          key: string
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      features: {
+        Row: {
+          created_at: string
+          default_enabled: boolean
+          description: string | null
+          group_id: string
+          id: string
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_enabled?: boolean
+          description?: string | null
+          group_id: string
+          id?: string
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_enabled?: boolean
+          description?: string | null
+          group_id?: string
+          id?: string
+          name?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "features_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "feature_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_feature_flags: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          feature_id: string
+          id: string
+          notes: string | null
+          reason: string | null
+          tenant_id: string
+          toggled_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled: boolean
+          feature_id: string
+          id?: string
+          notes?: string | null
+          reason?: string | null
+          tenant_id: string
+          toggled_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          feature_id?: string
+          id?: string
+          notes?: string | null
+          reason?: string | null
+          tenant_id?: string
+          toggled_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_feature_flags_feature_id_fkey"
+            columns: ["feature_id"]
+            isOneToOne: false
+            referencedRelation: "features"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_feature_flags_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      superadmins: {
+        Row: {
+          granted_at: string
+          granted_by: string | null
+          notes: string | null
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by?: string | null
+          notes?: string | null
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string | null
+          notes?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Functions: {
       app_create_tenant: {
@@ -3998,6 +4141,20 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      app_get_tenant_features: {
+        Args: { p_tenant: string }
+        Returns: {
+          default_enabled: boolean
+          description: string | null
+          enabled: boolean
+          feature_id: string
+          group_key: string
+          group_name: string
+          name: string
+          slug: string
+          source: string
+        }[]
       }
       app_current_user_id: { Args: never; Returns: string }
       app_has_permission: {

@@ -17,6 +17,7 @@ export default [
   route("/workflows", "routes/workflows.tsx"),
   route("/workflows/:workflowId/builder", "routes/workflows.$workflowId.builder.tsx"),
   route("/journeys/:shareToken", "routes/journeys.$shareToken.tsx"),
+  route("/admin/features", "routes/admin.features.tsx"),
   route("/departments", "routes/departments.tsx"),
   route("/office-locations", "routes/office-locations.tsx"),
   route("/teams", "routes/teams.tsx"),

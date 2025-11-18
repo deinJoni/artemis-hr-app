@@ -422,6 +422,25 @@ The enhanced employee schema includes 20+ structured fields:
 3. Preview data and fix validation errors
 4. Confirm import to create/update employee records
 
+## Feature Flags & Superadmin Controls
+
+- Feature groups in Supabase (`feature_groups`, `features`, `tenant_feature_flags`, `superadmins`) mirror the major modules documented above. Every tenant resolves effective flags via `app_get_tenant_features`, so loaders/rendering logic can gate routes, nav items, and services without bespoke checks.
+- Back-end endpoints:
+  - `GET /api/features` returns the current tenant's resolved flags (loader + UI gating).
+  - `GET /api/admin/features` and `PUT /api/admin/features/:tenantId/:featureSlug` let superadmins audit and toggle overrides. The admin client uses the service role and writes audit metadata (`reason`, `notes`, `toggled_by`).
+- Front-end integration:
+  - `FeatureFlagProvider` (apps/frontend) hydrates from bootstrap + `/api/features`, exposes hooks (`useFeatureFlag`, `useFeatureGroup`, `useFeatureFlags`), and injects `FeatureGate` wrappers for sensitive routes.
+  - Navigation automatically hides disabled modules; route outlets display a helpful fallback when a feature is turned off mid-session.
+  - Superadmins see `/admin/features`, a dedicated console that lists every tenant with per-feature toggles and live status badges.
+- Tenant bootstrap now returns `features` and `is_superadmin` so SSR-safe loaders can immediately respect the active configuration.
+
+### Validation Checklist
+
+1. Sign in as a superadmin and visit `/admin/features`; confirm all tenants and feature groups render with accurate default states.
+2. Toggle a feature for the current tenant and verify the navigation + gated routes disappear (or reappear) after the toast succeeds.
+3. Toggle a feature for a different tenant and confirm `/api/admin/features` reflects the override without affecting your current session.
+4. Hit `/api/features` directly to ensure the resolved array matches what the UI shows (default vs `tenant_override` source labels).
+
 ## Time & Attendance Management
 
 ### Core Time Tracking Features

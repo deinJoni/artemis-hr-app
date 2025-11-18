@@ -41,9 +41,29 @@ export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
       return c.json({ error: 'Unauthorized: User not found' }, 401)
     }
 
-    c.set('user', data.user)
+    const user = data.user
+    const supabaseClient = supabaseForUser(token)
+
+    c.set('user', user)
     c.set('userToken', token)
-    c.set('supabase', supabaseForUser(token))
+    c.set('supabase', supabaseClient)
+
+    let isSuperadmin = false
+    try {
+      const result = await supabaseClient
+        .from('superadmins')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (result.error && result.error.code !== 'PGRST116') {
+        console.error('Superadmin lookup failed:', result.error.message)
+      }
+      isSuperadmin = Boolean(result.data)
+    } catch (superadminError) {
+      const message = superadminError instanceof Error ? superadminError.message : String(superadminError)
+      console.error('Superadmin lookup threw:', message)
+    }
+    c.set('superadmin', isSuperadmin)
 
     await next()
   } catch (error) {

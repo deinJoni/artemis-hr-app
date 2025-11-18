@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
-import { CalendarDays, GitBranch, LayoutDashboard, LifeBuoy, Settings, Users, UserCircle2, LogOut, Clock, CheckCircle, TrendingUp, Calendar, CalendarCheck, Search, History, ChevronDown, ChevronRight, Briefcase, MessageCircle } from "lucide-react";
+import { CalendarDays, GitBranch, LayoutDashboard, LifeBuoy, Settings, Users, UserCircle2, LogOut, Clock, CheckCircle, TrendingUp, Calendar, CalendarCheck, Search, History, ChevronDown, ChevronRight, Briefcase, MessageCircle, ShieldCheck } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import type { AccountBootstrapResponse } from "@vibe/shared";
 import { supabase } from "~/lib/supabase";
@@ -19,6 +19,8 @@ import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
 import { useKeyboardShortcuts } from "~/hooks/use-keyboard-shortcuts";
 import { useTranslation } from "~/lib/i18n";
+import { useFeatureFlag } from "~/lib/feature-flags";
+import type { FeatureSlug } from "~/components/feature-gate";
 
 type NavItem = {
   label: string;
@@ -28,11 +30,14 @@ type NavItem = {
   requires?: "calendar" | "team";
   badge?: number;
   keywords?: string[];
+  feature?: FeatureSlug;
+  superadminOnly?: boolean;
 };
 
 type AppSidebarProps = {
   session: Session;
   tenant: AccountBootstrapResponse["tenant"] | null;
+  isSuperadmin?: boolean;
 };
 
 // Nav items will be created inside component to use translations
@@ -42,6 +47,7 @@ export function AppSidebar({
   tenant,
   canViewCalendar = false,
   canManageTeam = false,
+  isSuperadmin = false,
 }: AppSidebarProps & { canViewCalendar?: boolean; canManageTeam?: boolean }) {
   const { t } = useTranslation();
   const { open, isMobile, setOpen } = useSidebar();
@@ -54,30 +60,57 @@ export function AppSidebar({
   const [showSearch, setShowSearch] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
+  const coreHrEnabled = useFeatureFlag("core_hr", true);
+  const timeEnabled = useFeatureFlag("time_attendance", true);
+  const leaveEnabled = useFeatureFlag("leave_management", true);
+  const recruitingEnabled = useFeatureFlag("recruiting", false);
+  const workflowsEnabled = useFeatureFlag("workflows", false);
+  const isFeatureEnabled = React.useCallback(
+    (slug?: FeatureSlug) => {
+      if (!slug) return true;
+      switch (slug) {
+        case "core_hr":
+          return coreHrEnabled;
+        case "time_attendance":
+          return timeEnabled;
+        case "leave_management":
+          return leaveEnabled;
+        case "recruiting":
+          return recruitingEnabled;
+        case "workflows":
+          return workflowsEnabled;
+        default:
+          return true;
+      }
+    },
+    [coreHrEnabled, timeEnabled, leaveEnabled, recruitingEnabled, workflowsEnabled]
+  );
+
   const navItems: NavItem[] = React.useMemo(() => [
     { label: t("sidebar.dashboard"), to: "/", icon: LayoutDashboard, disabled: false, keywords: ["home", "main"] },
-    { label: t("sidebar.timeEntries"), to: "/time/entries", icon: Clock, disabled: false, keywords: ["time", "hours", "timesheet"] },
-    { label: t("sidebar.overtime"), to: "/time/overtime", icon: TrendingUp, disabled: false, keywords: ["ot", "extra"] },
-    { label: t("sidebar.approvals"), to: "/approvals", icon: CheckCircle, disabled: false, requires: "team", keywords: ["approve", "review", "time", "leave"] },
+    { label: t("sidebar.timeEntries"), to: "/time/entries", icon: Clock, disabled: false, keywords: ["time", "hours", "timesheet"], feature: "time_attendance" },
+    { label: t("sidebar.overtime"), to: "/time/overtime", icon: TrendingUp, disabled: false, keywords: ["ot", "extra"], feature: "time_attendance" },
+    { label: t("sidebar.approvals"), to: "/approvals", icon: CheckCircle, disabled: false, requires: "team", keywords: ["approve", "review", "time", "leave"], feature: "time_attendance" },
     { label: t("sidebar.chat"), to: "/chat", icon: MessageCircle, disabled: false, keywords: ["assistant", "ai", "support", "chat"] },
-    { label: t("sidebar.calendar"), to: "/calendar", icon: CalendarDays, disabled: false, requires: "calendar", keywords: ["schedule", "events"] },
-    { label: t("sidebar.myTeam"), to: "/my-team", icon: UserCircle2, disabled: false, requires: "team", keywords: ["team", "people"] },
-    { label: t("sidebar.workflows"), to: "/workflows", icon: GitBranch, disabled: false, keywords: ["automation", "process"] },
-    { label: t("sidebar.members"), to: "/members", icon: Users, disabled: false, keywords: ["people", "directory"] },
-    { label: t("sidebar.employees"), to: "/employees", icon: Users, disabled: false, keywords: ["staff", "workers"] },
+    { label: t("sidebar.calendar"), to: "/calendar", icon: CalendarDays, disabled: false, requires: "calendar", keywords: ["schedule", "events"], feature: "time_attendance" },
+    { label: t("sidebar.myTeam"), to: "/my-team", icon: UserCircle2, disabled: false, requires: "team", keywords: ["team", "people"], feature: "core_hr" },
+    { label: t("sidebar.workflows"), to: "/workflows", icon: GitBranch, disabled: false, keywords: ["automation", "process"], feature: "workflows" },
+    { label: t("sidebar.members"), to: "/members", icon: Users, disabled: false, keywords: ["people", "directory"], feature: "core_hr" },
+    { label: t("sidebar.employees"), to: "/employees", icon: Users, disabled: false, keywords: ["staff", "workers"], feature: "core_hr" },
+    { label: t("sidebar.featureFlags"), to: "/admin/features", icon: ShieldCheck, disabled: false, keywords: ["feature", "flags", "admin"], superadminOnly: true },
     { label: t("sidebar.settings"), to: "/settings", icon: Settings, disabled: false, keywords: ["config", "preferences"] },
     { label: t("sidebar.support"), to: "/support", icon: LifeBuoy, disabled: true, keywords: ["help"] },
   ], [t]);
 
   const leaveNavItems: NavItem[] = React.useMemo(() => [
-    { label: t("sidebar.myRequests"), to: "/leave/requests", icon: Calendar, disabled: false, keywords: ["leave", "pto", "vacation"] },
-    { label: t("sidebar.teamCalendar"), to: "/leave/team-calendar", icon: CalendarCheck, disabled: false, requires: "team", keywords: ["calendar", "schedule"] },
-    { label: t("sidebar.settings"), to: "/leave/admin", icon: Settings, disabled: false, requires: "calendar", keywords: ["admin", "config"] },
+    { label: t("sidebar.myRequests"), to: "/leave/requests", icon: Calendar, disabled: false, keywords: ["leave", "pto", "vacation"], feature: "leave_management" },
+    { label: t("sidebar.teamCalendar"), to: "/leave/team-calendar", icon: CalendarCheck, disabled: false, requires: "team", keywords: ["calendar", "schedule"], feature: "leave_management" },
+    { label: t("sidebar.settings"), to: "/leave/admin", icon: Settings, disabled: false, requires: "calendar", keywords: ["admin", "config"], feature: "leave_management" },
   ], [t]);
 
   const recruitingNavItems: NavItem[] = React.useMemo(() => [
-    { label: t("sidebar.jobs"), to: "/recruiting/jobs", icon: Briefcase, disabled: false, keywords: ["jobs", "postings", "positions"] },
-    { label: t("sidebar.analytics"), to: "/recruiting/analytics", icon: TrendingUp, disabled: false, keywords: ["stats", "metrics", "reports"] },
+    { label: t("sidebar.jobs"), to: "/recruiting/jobs", icon: Briefcase, disabled: false, keywords: ["jobs", "postings", "positions"], feature: "recruiting" },
+    { label: t("sidebar.analytics"), to: "/recruiting/analytics", icon: TrendingUp, disabled: false, keywords: ["stats", "metrics", "reports"], feature: "recruiting" },
   ], [t]);
 
   const displayName =
@@ -101,25 +134,26 @@ export function AppSidebar({
     });
   }, [location.pathname]);
 
+  const filterNavItems = React.useCallback(
+    (items: NavItem[]) =>
+      items.filter((item) => {
+        if (item.superadminOnly && !isSuperadmin) return false;
+        if (!isFeatureEnabled(item.feature)) return false;
+        if (item.requires === "calendar") return canViewCalendar;
+        if (item.requires === "team") return canManageTeam;
+        return true;
+      }),
+    [canManageTeam, canViewCalendar, isFeatureEnabled, isSuperadmin]
+  );
+
   // Get all available nav items
   const allNavItems = React.useMemo(() => {
-    const workspaceItems = navItems.filter((item) => {
-      if (item.requires === "calendar") return canViewCalendar;
-      if (item.requires === "team") return canManageTeam;
-      return true;
-    });
-    const leaveItems = leaveNavItems.filter((item) => {
-      if (item.requires === "team") return canManageTeam;
-      if (item.requires === "calendar") return canViewCalendar;
-      return true;
-    });
-    const recruitingItems = recruitingNavItems.filter((item) => {
-      if (item.requires === "team") return canManageTeam;
-      if (item.requires === "calendar") return canViewCalendar;
-      return true;
-    });
-    return [...workspaceItems, ...leaveItems, ...recruitingItems];
-  }, [canViewCalendar, canManageTeam]);
+    return [
+      ...filterNavItems(navItems),
+      ...filterNavItems(leaveNavItems),
+      ...filterNavItems(recruitingNavItems),
+    ];
+  }, [navItems, leaveNavItems, recruitingNavItems, filterNavItems]);
 
   // Filter items based on search
   const filteredNavItems = React.useMemo(() => {
@@ -217,23 +251,9 @@ export function AppSidebar({
     }
   }, [filteredNavItems.length, isSearching]);
 
-  const workspaceItems = navItems.filter((item) => {
-    if (item.requires === "calendar") return canViewCalendar;
-    if (item.requires === "team") return canManageTeam;
-    return true;
-  });
-
-  const leaveItems = leaveNavItems.filter((item) => {
-    if (item.requires === "team") return canManageTeam;
-    if (item.requires === "calendar") return canViewCalendar;
-    return true;
-  });
-
-  const recruitingItems = recruitingNavItems.filter((item) => {
-    if (item.requires === "team") return canManageTeam;
-    if (item.requires === "calendar") return canViewCalendar;
-    return true;
-  });
+  const workspaceItems = filterNavItems(navItems);
+  const leaveItems = filterNavItems(leaveNavItems);
+  const recruitingItems = filterNavItems(recruitingNavItems);
 
   const workspaceCollapsed = collapsedGroups.has("workspace");
   const leaveCollapsed = collapsedGroups.has("leave");
@@ -433,23 +453,25 @@ export function AppSidebar({
               </SidebarMenu>
             )}
 
-            <button
-              type="button"
-              onClick={() => toggleGroup("leave")}
-              className="w-full mt-4"
-            >
-              <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                <span>{t("sidebar.leaveAbsence")}</span>
-                {leaveCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </SidebarGroupLabel>
-            </button>
-            {!leaveCollapsed && (
-              <SidebarMenu>
-                {leaveItems.map((item) => {
+            {leaveItems.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup("leave")}
+                  className="w-full mt-4"
+                >
+                  <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
+                    <span>{t("sidebar.leaveAbsence")}</span>
+                    {leaveCollapsed ? (
+                      <ChevronRight className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </SidebarGroupLabel>
+                </button>
+                {!leaveCollapsed && (
+                  <SidebarMenu>
+                    {leaveItems.map((item) => {
                   const Icon = item.icon;
                   const baseClasses = cn(
                     "flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm transition-colors",
@@ -502,27 +524,31 @@ export function AppSidebar({
                       </NavLink>
                     </SidebarMenuItem>
                   );
-                })}
-              </SidebarMenu>
+                    })}
+                  </SidebarMenu>
+                )}
+              </>
             )}
 
-            <button
-              type="button"
-              onClick={() => toggleGroup("recruiting")}
-              className="w-full mt-4"
-            >
-              <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                <span>{t("sidebar.recruiting")}</span>
-                {recruitingCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </SidebarGroupLabel>
-            </button>
-            {!recruitingCollapsed && (
-              <SidebarMenu>
-                {recruitingItems.map((item) => {
+            {recruitingItems.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup("recruiting")}
+                  className="w-full mt-4"
+                >
+                  <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
+                    <span>{t("sidebar.recruiting")}</span>
+                    {recruitingCollapsed ? (
+                      <ChevronRight className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </SidebarGroupLabel>
+                </button>
+                {!recruitingCollapsed && (
+                  <SidebarMenu>
+                    {recruitingItems.map((item) => {
                   const Icon = item.icon;
                   const baseClasses = cn(
                     "flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm transition-colors",
@@ -575,8 +601,10 @@ export function AppSidebar({
                       </NavLink>
                     </SidebarMenuItem>
                   );
-                })}
-              </SidebarMenu>
+                    })}
+                  </SidebarMenu>
+                )}
+              </>
             )}
           </>
         )}

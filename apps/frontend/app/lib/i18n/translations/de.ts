@@ -111,6 +111,7 @@ export const translations = {
     workflows: "Workflows",
     members: "Mitglieder",
     employees: "Mitarbeiter",
+    featureFlags: "Feature-Flags",
     support: "Support",
     workspace: "Arbeitsbereich",
     leaveAbsence: "Urlaub & Abwesenheit",
