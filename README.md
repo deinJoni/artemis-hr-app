@@ -73,6 +73,7 @@ Artemis is a workforce experience sandbox that brings onboarding, people operati
 - Fixed Issues: ✅ Cookie-based auth token storage for SSR compatibility (fixes 401 errors in loaders)
 - Gap: ⏳ Some Quick Links may point at routes that need implementation.
 - Impact: Dashboard loads reliably with proper authentication; all widgets display correctly.
+- Sidebar groups now mirror the feature areas below. Update `FEATURE_NAV` inside `apps/frontend/app/components/app-sidebar.tsx` (plus the translation keys under `apps/frontend/app/lib/i18n/translations`) when adding or restructuring navigation so the collapsible sections stay in sync with the README.
 - Next: Verify all Quick Links routes and add smoke tests to CI.
 
 ### Time & Attendance

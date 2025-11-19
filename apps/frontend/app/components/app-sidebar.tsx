@@ -1,6 +1,30 @@
 import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
-import { CalendarDays, GitBranch, LayoutDashboard, LifeBuoy, Settings, Users, UserCircle2, LogOut, Clock, CheckCircle, TrendingUp, Calendar, CalendarCheck, Search, History, ChevronDown, ChevronRight, Briefcase, MessageCircle, ShieldCheck } from "lucide-react";
+import {
+  BarChart3,
+  Briefcase,
+  Building2,
+  Calendar,
+  CalendarCheck,
+  CalendarDays,
+  CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  GitBranch,
+  History,
+  LayoutDashboard,
+  LifeBuoy,
+  LogOut,
+  MapPin,
+  MessageCircle,
+  Search,
+  Settings,
+  ShieldCheck,
+  TrendingUp,
+  UserCircle2,
+  Users,
+} from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import type { AccountBootstrapResponse } from "@vibe/shared";
 import { supabase } from "~/lib/supabase";
@@ -13,6 +37,8 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
   useSidebar,
 } from "~/components/ui/sidebar";
 import { Input } from "~/components/ui/input";
@@ -22,16 +48,28 @@ import { useTranslation } from "~/lib/i18n";
 import { useFeatureFlag } from "~/lib/feature-flags";
 import type { FeatureSlug } from "~/components/feature-gate";
 
-type NavItem = {
-  label: string;
+type PermissionRequirement = "calendar" | "team";
+
+type NavItemConfig = {
+  key: string;
+  labelKey: string;
   to: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon?: React.ComponentType<{ className?: string }>;
   disabled?: boolean;
-  requires?: "calendar" | "team";
+  requires?: PermissionRequirement;
   badge?: number;
   keywords?: string[];
   feature?: FeatureSlug;
   superadminOnly?: boolean;
+  children?: NavItemConfig[];
+};
+
+type FeatureNavGroup = {
+  id: string;
+  labelKey: string;
+  feature?: FeatureSlug;
+  icon?: React.ComponentType<{ className?: string }>;
+  items: NavItemConfig[];
 };
 
 type AppSidebarProps = {
@@ -40,7 +78,248 @@ type AppSidebarProps = {
   isSuperadmin?: boolean;
 };
 
-// Nav items will be created inside component to use translations
+const FEATURE_NAV: FeatureNavGroup[] = [
+  {
+    id: "overview",
+    labelKey: "sidebar.groupOverview",
+    items: [
+      {
+        key: "dashboard",
+        labelKey: "sidebar.dashboard",
+        to: "/",
+        icon: LayoutDashboard,
+        keywords: ["home", "main"],
+      },
+      {
+        key: "chat",
+        labelKey: "sidebar.chat",
+        to: "/chat",
+        icon: MessageCircle,
+        keywords: ["assistant", "ai", "support", "chat"],
+      },
+    ],
+  },
+  {
+    id: "peopleOps",
+    labelKey: "sidebar.groupPeopleOps",
+    feature: "core_hr",
+    items: [
+      {
+        key: "employees",
+        labelKey: "sidebar.employees",
+        to: "/employees",
+        icon: Users,
+        keywords: ["staff", "workers"],
+      },
+      {
+        key: "members",
+        labelKey: "sidebar.members",
+        to: "/members",
+        icon: Users,
+        keywords: ["directory", "people"],
+      },
+      {
+        key: "myTeam",
+        labelKey: "sidebar.myTeam",
+        to: "/my-team",
+        icon: UserCircle2,
+        requires: "team",
+        keywords: ["team", "manager"],
+      },
+      {
+        key: "approvals",
+        labelKey: "sidebar.approvals",
+        to: "/approvals",
+        icon: CheckCircle,
+        requires: "team",
+        keywords: ["approve", "review"],
+      },
+    ],
+  },
+  {
+    id: "teamOrg",
+    labelKey: "sidebar.groupTeamOrg",
+    feature: "core_hr",
+    items: [
+      {
+        key: "departments",
+        labelKey: "sidebar.departments",
+        to: "/departments",
+        icon: Building2,
+        keywords: ["org", "structure"],
+      },
+      {
+        key: "teams",
+        labelKey: "sidebar.teams",
+        to: "/teams",
+        icon: Users,
+        keywords: ["groups", "organization"],
+      },
+      {
+        key: "officeLocations",
+        labelKey: "sidebar.officeLocations",
+        to: "/office-locations",
+        icon: MapPin,
+        keywords: ["location", "office"],
+      },
+    ],
+  },
+  {
+    id: "timeAttendance",
+    labelKey: "sidebar.groupTimeAttendance",
+    feature: "time_attendance",
+    items: [
+      {
+        key: "timeEntries",
+        labelKey: "sidebar.timeEntries",
+        to: "/time/entries",
+        icon: Clock,
+        keywords: ["time", "hours", "timesheet"],
+      },
+      {
+        key: "overtime",
+        labelKey: "sidebar.overtime",
+        to: "/time/overtime",
+        icon: TrendingUp,
+        keywords: ["ot", "extra"],
+      },
+      {
+        key: "timeApprovals",
+        labelKey: "sidebar.timeApprovals",
+        to: "/time/approvals",
+        icon: CheckCircle,
+        requires: "team",
+        keywords: ["approvals", "manager"],
+      },
+      {
+        key: "calendar",
+        labelKey: "sidebar.calendar",
+        to: "/calendar",
+        icon: CalendarDays,
+        requires: "calendar",
+        keywords: ["schedule", "events"],
+        children: [
+          {
+            key: "teamCalendarTime",
+            labelKey: "sidebar.teamCalendar",
+            to: "/team-calendar",
+            icon: CalendarDays,
+            requires: "team",
+            keywords: ["calendar", "team"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "leave",
+    labelKey: "sidebar.leaveAbsence",
+    feature: "leave_management",
+    items: [
+      {
+        key: "leaveRequests",
+        labelKey: "sidebar.myRequests",
+        to: "/leave/requests",
+        icon: Calendar,
+        keywords: ["leave", "pto", "vacation"],
+      },
+      {
+        key: "leaveApprovals",
+        labelKey: "sidebar.leaveApprovals",
+        to: "/leave/approvals",
+        icon: CheckCircle,
+        requires: "team",
+        keywords: ["approvals", "manager"],
+      },
+      {
+        key: "leaveTeamCalendar",
+        labelKey: "sidebar.teamCalendar",
+        to: "/leave/team-calendar",
+        icon: CalendarCheck,
+        requires: "team",
+        keywords: ["calendar", "schedule"],
+      },
+      {
+        key: "leaveReports",
+        labelKey: "sidebar.leaveReports",
+        to: "/leave/reports",
+        icon: BarChart3,
+        keywords: ["reports", "analytics"],
+      },
+      {
+        key: "leaveAdmin",
+        labelKey: "sidebar.leaveAdmin",
+        to: "/leave/admin",
+        icon: Settings,
+        keywords: ["admin", "config"],
+      },
+    ],
+  },
+  {
+    id: "recruiting",
+    labelKey: "sidebar.groupRecruiting",
+    feature: "recruiting",
+    items: [
+      {
+        key: "jobs",
+        labelKey: "sidebar.jobs",
+        to: "/recruiting/jobs",
+        icon: Briefcase,
+        keywords: ["jobs", "postings", "positions"],
+      },
+      {
+        key: "analytics",
+        labelKey: "sidebar.analytics",
+        to: "/recruiting/analytics",
+        icon: TrendingUp,
+        keywords: ["stats", "metrics", "reports"],
+      },
+    ],
+  },
+  {
+    id: "workflows",
+    labelKey: "sidebar.groupWorkflows",
+    feature: "workflows",
+    items: [
+      {
+        key: "workflows",
+        labelKey: "sidebar.workflows",
+        to: "/workflows",
+        icon: GitBranch,
+        keywords: ["automation", "process"],
+      },
+    ],
+  },
+  {
+    id: "supportAdmin",
+    labelKey: "sidebar.groupSupportAdmin",
+    items: [
+      {
+        key: "settings",
+        labelKey: "sidebar.settings",
+        to: "/settings",
+        icon: Settings,
+        keywords: ["config", "preferences"],
+      },
+      {
+        key: "featureFlags",
+        labelKey: "sidebar.featureFlags",
+        to: "/admin/features",
+        icon: ShieldCheck,
+        superadminOnly: true,
+        keywords: ["feature", "flags", "admin"],
+      },
+      {
+        key: "support",
+        labelKey: "sidebar.support",
+        to: "/support",
+        icon: LifeBuoy,
+        disabled: true,
+        keywords: ["help"],
+      },
+    ],
+  },
+];
 
 export function AppSidebar({
   session,
@@ -65,6 +344,7 @@ export function AppSidebar({
   const leaveEnabled = useFeatureFlag("leave_management", true);
   const recruitingEnabled = useFeatureFlag("recruiting", false);
   const workflowsEnabled = useFeatureFlag("workflows", false);
+
   const isFeatureEnabled = React.useCallback(
     (slug?: FeatureSlug) => {
       if (!slug) return true;
@@ -86,32 +366,86 @@ export function AppSidebar({
     [coreHrEnabled, timeEnabled, leaveEnabled, recruitingEnabled, workflowsEnabled]
   );
 
-  const navItems: NavItem[] = React.useMemo(() => [
-    { label: t("sidebar.dashboard"), to: "/", icon: LayoutDashboard, disabled: false, keywords: ["home", "main"] },
-    { label: t("sidebar.timeEntries"), to: "/time/entries", icon: Clock, disabled: false, keywords: ["time", "hours", "timesheet"], feature: "time_attendance" },
-    { label: t("sidebar.overtime"), to: "/time/overtime", icon: TrendingUp, disabled: false, keywords: ["ot", "extra"], feature: "time_attendance" },
-    { label: t("sidebar.approvals"), to: "/approvals", icon: CheckCircle, disabled: false, requires: "team", keywords: ["approve", "review", "time", "leave"], feature: "time_attendance" },
-    { label: t("sidebar.chat"), to: "/chat", icon: MessageCircle, disabled: false, keywords: ["assistant", "ai", "support", "chat"] },
-    { label: t("sidebar.calendar"), to: "/calendar", icon: CalendarDays, disabled: false, requires: "calendar", keywords: ["schedule", "events"], feature: "time_attendance" },
-    { label: t("sidebar.myTeam"), to: "/my-team", icon: UserCircle2, disabled: false, requires: "team", keywords: ["team", "people"], feature: "core_hr" },
-    { label: t("sidebar.workflows"), to: "/workflows", icon: GitBranch, disabled: false, keywords: ["automation", "process"], feature: "workflows" },
-    { label: t("sidebar.members"), to: "/members", icon: Users, disabled: false, keywords: ["people", "directory"], feature: "core_hr" },
-    { label: t("sidebar.employees"), to: "/employees", icon: Users, disabled: false, keywords: ["staff", "workers"], feature: "core_hr" },
-    { label: t("sidebar.featureFlags"), to: "/admin/features", icon: ShieldCheck, disabled: false, keywords: ["feature", "flags", "admin"], superadminOnly: true },
-    { label: t("sidebar.settings"), to: "/settings", icon: Settings, disabled: false, keywords: ["config", "preferences"] },
-    { label: t("sidebar.support"), to: "/support", icon: LifeBuoy, disabled: true, keywords: ["help"] },
-  ], [t]);
+  type ResolvedNavItem = Omit<NavItemConfig, "children"> & {
+    label: string;
+    children: ResolvedNavItem[];
+  };
 
-  const leaveNavItems: NavItem[] = React.useMemo(() => [
-    { label: t("sidebar.myRequests"), to: "/leave/requests", icon: Calendar, disabled: false, keywords: ["leave", "pto", "vacation"], feature: "leave_management" },
-    { label: t("sidebar.teamCalendar"), to: "/leave/team-calendar", icon: CalendarCheck, disabled: false, requires: "team", keywords: ["calendar", "schedule"], feature: "leave_management" },
-    { label: t("sidebar.settings"), to: "/leave/admin", icon: Settings, disabled: false, requires: "calendar", keywords: ["admin", "config"], feature: "leave_management" },
-  ], [t]);
+  type ResolvedFeatureGroup = Omit<FeatureNavGroup, "items"> & {
+    label: string;
+    items: ResolvedNavItem[];
+  };
 
-  const recruitingNavItems: NavItem[] = React.useMemo(() => [
-    { label: t("sidebar.jobs"), to: "/recruiting/jobs", icon: Briefcase, disabled: false, keywords: ["jobs", "postings", "positions"], feature: "recruiting" },
-    { label: t("sidebar.analytics"), to: "/recruiting/analytics", icon: TrendingUp, disabled: false, keywords: ["stats", "metrics", "reports"], feature: "recruiting" },
-  ], [t]);
+  const resolvedGroups = React.useMemo<ResolvedFeatureGroup[]>(() => {
+    const mapItem = (item: NavItemConfig): ResolvedNavItem => ({
+      ...item,
+      label: t(item.labelKey),
+      children: item.children ? item.children.map(mapItem) : [],
+    });
+
+    return FEATURE_NAV.map((group) => ({
+      id: group.id,
+      labelKey: group.labelKey,
+      feature: group.feature,
+      icon: group.icon,
+      label: t(group.labelKey),
+      items: group.items.map(mapItem),
+    }));
+  }, [t]);
+
+  const filterItem = React.useCallback(
+    (item: ResolvedNavItem): ResolvedNavItem | null => {
+      if (item.superadminOnly && !isSuperadmin) return null;
+      if (item.feature && !isFeatureEnabled(item.feature)) return null;
+      if (item.requires === "calendar" && !canViewCalendar) return null;
+      if (item.requires === "team" && !canManageTeam) return null;
+
+      const children = item.children
+        .map((child) => filterItem(child))
+        .filter(Boolean) as ResolvedNavItem[];
+
+      return { ...item, children };
+    },
+    [canManageTeam, canViewCalendar, isFeatureEnabled, isSuperadmin]
+  );
+
+  const filteredGroups = React.useMemo<ResolvedFeatureGroup[]>(() => {
+    return resolvedGroups
+      .map((group) => {
+        if (group.feature && !isFeatureEnabled(group.feature)) return null;
+        const items = group.items
+          .map((item) => filterItem(item))
+          .filter(Boolean) as ResolvedNavItem[];
+        if (items.length === 0) return null;
+        return { ...group, items };
+      })
+      .filter(Boolean) as ResolvedFeatureGroup[];
+  }, [filterItem, isFeatureEnabled, resolvedGroups]);
+
+  const searchableNavItems = React.useMemo<ResolvedNavItem[]>(() => {
+    const result: ResolvedNavItem[] = [];
+    const walk = (items: ResolvedNavItem[]) => {
+      for (const item of items) {
+        result.push(item);
+        if (item.children.length) {
+          walk(item.children);
+        }
+      }
+    };
+    filteredGroups.forEach((group) => walk(group.items));
+    return result;
+  }, [filteredGroups]);
+
+  const filteredNavItems = React.useMemo(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed) return searchableNavItems;
+    return searchableNavItems.filter(
+      (item) =>
+        item.label.toLowerCase().includes(trimmed) ||
+        item.to.toLowerCase().includes(trimmed) ||
+        item.keywords?.some((kw) => kw.toLowerCase().includes(trimmed))
+    );
+  }, [searchQuery, searchableNavItems]);
 
   const displayName =
     tenant?.name ??
@@ -125,7 +459,21 @@ export function AppSidebar({
     session.user.identities?.[0]?.identity_data?.email ??
     undefined;
 
-  // Track recent visits
+  const trimmedSearchQuery = searchQuery.trim();
+  const isSearching = showSearch && trimmedSearchQuery.length > 0;
+
+  const handleNavigate = React.useCallback(
+    (path: string) => {
+      navigate(path);
+      if (isMobile) {
+        setOpen(false);
+      }
+      setShowSearch(false);
+      setSearchQuery("");
+    },
+    [isMobile, navigate, setOpen]
+  );
+
   React.useEffect(() => {
     const currentPath = location.pathname;
     setRecentVisits((prev) => {
@@ -134,63 +482,106 @@ export function AppSidebar({
     });
   }, [location.pathname]);
 
-  const filterNavItems = React.useCallback(
-    (items: NavItem[]) =>
-      items.filter((item) => {
-        if (item.superadminOnly && !isSuperadmin) return false;
-        if (!isFeatureEnabled(item.feature)) return false;
-        if (item.requires === "calendar") return canViewCalendar;
-        if (item.requires === "team") return canManageTeam;
-        return true;
-      }),
-    [canManageTeam, canViewCalendar, isFeatureEnabled, isSuperadmin]
-  );
-
-  // Get all available nav items
-  const allNavItems = React.useMemo(() => {
-    return [
-      ...filterNavItems(navItems),
-      ...filterNavItems(leaveNavItems),
-      ...filterNavItems(recruitingNavItems),
-    ];
-  }, [navItems, leaveNavItems, recruitingNavItems, filterNavItems]);
-
-  // Filter items based on search
-  const filteredNavItems = React.useMemo(() => {
-    const trimmedQuery = searchQuery.trim();
-    if (!trimmedQuery) return allNavItems;
-    const query = trimmedQuery.toLowerCase();
-    return allNavItems.filter(
-      (item) =>
-        item.label.toLowerCase().includes(query) ||
-        item.to.toLowerCase().includes(query) ||
-        item.keywords?.some((kw) => kw.toLowerCase().includes(query))
-    );
-  }, [allNavItems, searchQuery]);
-
-  const trimmedSearchQuery = searchQuery.trim();
-  const isSearching = showSearch && trimmedSearchQuery.length > 0;
-
-  const handleNavigate = React.useCallback((path: string) => {
-    navigate(path);
-    if (isMobile) {
-      setOpen(false);
-    }
-    setShowSearch(false);
-    setSearchQuery("");
-  }, [isMobile, setOpen, navigate]);
-
-  const toggleGroup = React.useCallback((group: string) => {
+  const toggleGroup = React.useCallback((groupId: string) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
-      if (next.has(group)) {
-        next.delete(group);
+      if (next.has(groupId)) {
+        next.delete(groupId);
       } else {
-        next.add(group);
+        next.add(groupId);
       }
       return next;
     });
   }, []);
+
+  const renderSubItem = (item: ResolvedNavItem) => {
+    if (item.disabled) {
+      return (
+        <SidebarMenuSubItem key={item.key}>
+          <span className="flex h-8 items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/50">
+            {item.icon ? <item.icon className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+            <span className="truncate">{item.label}</span>
+            <span className="ml-auto text-[10px] uppercase">{t("common.soon")}</span>
+          </span>
+        </SidebarMenuSubItem>
+      );
+    }
+
+    return (
+      <SidebarMenuSubItem key={item.key}>
+        <NavLink
+          to={item.to}
+          className={({ isActive }) =>
+            cn(
+              "flex h-8 items-center gap-2 rounded-md px-2 text-xs transition-colors",
+              isActive
+                ? "bg-sidebar-accent/60 text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground"
+            )
+          }
+          onClick={() => handleNavigate(item.to)}
+        >
+          {item.icon ? <item.icon className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+          <span className="truncate">{item.label}</span>
+        </NavLink>
+      </SidebarMenuSubItem>
+    );
+  };
+
+  const renderNavItem = (item: ResolvedNavItem) => {
+    const Icon = item.icon;
+    const baseClasses = cn(
+      "flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm transition-colors",
+      !open && "justify-center px-2"
+    );
+
+    if (item.disabled) {
+      return (
+        <SidebarMenuItem key={item.key}>
+          <span
+            aria-disabled="true"
+            className={cn(baseClasses, "cursor-not-allowed text-sidebar-foreground/50")}
+          >
+            {Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
+            <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
+            {open ? (
+              <span className="ml-auto rounded-full bg-sidebar-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/70">
+                {t("common.soon")}
+              </span>
+            ) : null}
+          </span>
+        </SidebarMenuItem>
+      );
+    }
+
+    return (
+      <SidebarMenuItem key={item.key}>
+        <NavLink
+          to={item.to}
+          className={({ isActive }) =>
+            cn(
+              baseClasses,
+              isActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )
+          }
+          onClick={() => handleNavigate(item.to)}
+        >
+          {Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
+          <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
+          {item.badge && item.badge > 0 && open && (
+            <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1.5 text-[10px]">
+              {item.badge}
+            </Badge>
+          )}
+        </NavLink>
+        {item.children.length > 0 ? (
+          <SidebarMenuSub>{item.children.map((child) => renderSubItem(child))}</SidebarMenuSub>
+        ) : null}
+      </SidebarMenuItem>
+    );
+  };
 
   // Keyboard navigation for search
   useKeyboardShortcuts({
@@ -250,14 +641,6 @@ export function AppSidebar({
       setSelectedIndex(-1);
     }
   }, [filteredNavItems.length, isSearching]);
-
-  const workspaceItems = filterNavItems(navItems);
-  const leaveItems = filterNavItems(leaveNavItems);
-  const recruitingItems = filterNavItems(recruitingNavItems);
-
-  const workspaceCollapsed = collapsedGroups.has("workspace");
-  const leaveCollapsed = collapsedGroups.has("leave");
-  const recruitingCollapsed = collapsedGroups.has("recruiting");
 
   return (
     <Sidebar>
@@ -329,7 +712,7 @@ export function AppSidebar({
                         : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     )}
                   >
-                    <Icon className="h-4 w-4" />
+                    {Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
                     <span className="truncate">{item.label}</span>
                   </button>
                 );
@@ -351,13 +734,13 @@ export function AppSidebar({
             </SidebarGroupLabel>
             <SidebarMenu>
               {recentVisits.slice(0, 3).map((path) => {
-                const item = allNavItems.find((i) => i.to === path);
+                const item = searchableNavItems.find((i) => i.to === path);
                 if (!item) return null;
                 const Icon = item.icon;
                 return (
-                  <SidebarMenuItem key={path}>
+                  <SidebarMenuItem key={item.key}>
                     <NavLink
-                      to={path}
+                      to={item.to}
                       className={({ isActive }) =>
                         cn(
                           "flex h-9 w-full items-center gap-2 rounded-lg px-3 text-sm transition-colors",
@@ -366,9 +749,9 @@ export function AppSidebar({
                             : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                         )
                       }
-                      onClick={() => handleNavigate(path)}
+                      onClick={() => handleNavigate(item.to)}
                     >
-                      <Icon className="h-4 w-4" />
+                      {Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
                       <span className="truncate">{item.label}</span>
                     </NavLink>
                   </SidebarMenuItem>
@@ -379,234 +762,34 @@ export function AppSidebar({
         )}
 
         {!isSearching && (
-          <>
-            <button
-              type="button"
-              onClick={() => toggleGroup("workspace")}
-              className="w-full"
-            >
-              <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                <span>{t("sidebar.workspace")}</span>
-                {workspaceCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </SidebarGroupLabel>
-            </button>
-            {!workspaceCollapsed && (
-              <SidebarMenu>
-                {workspaceItems.map((item) => {
-                  const Icon = item.icon;
-                  const baseClasses = cn(
-                    "flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm transition-colors",
-                    !open && "justify-center px-2"
-                  );
-
-                  if (item.disabled) {
-                    return (
-                      <SidebarMenuItem key={item.label}>
-                        <span
-                          aria-disabled="true"
-                          className={cn(
-                            baseClasses,
-                            "cursor-not-allowed text-sidebar-foreground/50"
-                          )}
-                        >
-                          <Icon className="h-4 w-4" aria-hidden="true" />
-                          <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
-                          {open ? (
-                            <span className="ml-auto rounded-full bg-sidebar-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/70">
-                              {t("common.soon")}
-                            </span>
-                          ) : null}
-                        </span>
-                      </SidebarMenuItem>
-                    );
-                  }
-
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <NavLink
-                        to={item.to}
-                        className={({ isActive }) =>
-                          cn(
-                            baseClasses,
-                            isActive
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                          )
-                        }
-                        onClick={() => handleNavigate(item.to)}
-                      >
-                        <Icon className="h-4 w-4" aria-hidden="true" />
-                        <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
-                        {item.badge && item.badge > 0 && open && (
-                          <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1.5 text-[10px]">
-                            {item.badge}
-                          </Badge>
-                        )}
-                      </NavLink>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            )}
-
-            {leaveItems.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => toggleGroup("leave")}
-                  className="w-full mt-4"
-                >
-                  <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                    <span>{t("sidebar.leaveAbsence")}</span>
-                    {leaveCollapsed ? (
-                      <ChevronRight className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    )}
-                  </SidebarGroupLabel>
-                </button>
-                {!leaveCollapsed && (
-                  <SidebarMenu>
-                    {leaveItems.map((item) => {
-                  const Icon = item.icon;
-                  const baseClasses = cn(
-                    "flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm transition-colors",
-                    !open && "justify-center px-2"
-                  );
-
-                  if (item.disabled) {
-                    return (
-                      <SidebarMenuItem key={item.label}>
-                        <span
-                          aria-disabled="true"
-                          className={cn(
-                            baseClasses,
-                            "cursor-not-allowed text-sidebar-foreground/50"
-                          )}
-                        >
-                          <Icon className="h-4 w-4" aria-hidden="true" />
-                          <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
-                          {open ? (
-                            <span className="ml-auto rounded-full bg-sidebar-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/70">
-                              {t("common.soon")}
-                            </span>
-                          ) : null}
-                        </span>
-                      </SidebarMenuItem>
-                    );
-                  }
-
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <NavLink
-                        to={item.to}
-                        className={({ isActive }) =>
-                          cn(
-                            baseClasses,
-                            isActive
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                          )
-                        }
-                        onClick={() => handleNavigate(item.to)}
-                      >
-                        <Icon className="h-4 w-4" aria-hidden="true" />
-                        <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
-                        {item.badge && item.badge > 0 && open && (
-                          <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1.5 text-[10px]">
-                            {item.badge}
-                          </Badge>
-                        )}
-                      </NavLink>
-                    </SidebarMenuItem>
-                  );
-                    })}
-                  </SidebarMenu>
-                )}
-              </>
-            )}
-
-            {recruitingItems.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => toggleGroup("recruiting")}
-                  className="w-full mt-4"
-                >
-                  <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
-                    <span>{t("sidebar.recruiting")}</span>
-                    {recruitingCollapsed ? (
-                      <ChevronRight className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    )}
-                  </SidebarGroupLabel>
-                </button>
-                {!recruitingCollapsed && (
-                  <SidebarMenu>
-                    {recruitingItems.map((item) => {
-                  const Icon = item.icon;
-                  const baseClasses = cn(
-                    "flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm transition-colors",
-                    !open && "justify-center px-2"
-                  );
-
-                  if (item.disabled) {
-                    return (
-                      <SidebarMenuItem key={item.label}>
-                        <span
-                          aria-disabled="true"
-                          className={cn(
-                            baseClasses,
-                            "cursor-not-allowed text-sidebar-foreground/50"
-                          )}
-                        >
-                          <Icon className="h-4 w-4" aria-hidden="true" />
-                          <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
-                          {open ? (
-                            <span className="ml-auto rounded-full bg-sidebar-accent/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-foreground/70">
-                              {t("common.soon")}
-                            </span>
-                          ) : null}
-                        </span>
-                      </SidebarMenuItem>
-                    );
-                  }
-
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <NavLink
-                        to={item.to}
-                        className={({ isActive }) =>
-                          cn(
-                            baseClasses,
-                            isActive
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                          )
-                        }
-                        onClick={() => handleNavigate(item.to)}
-                      >
-                        <Icon className="h-4 w-4" aria-hidden="true" />
-                        <span className={cn("truncate", !open && "sr-only")}>{item.label}</span>
-                        {item.badge && item.badge > 0 && open && (
-                          <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1.5 text-[10px]">
-                            {item.badge}
-                          </Badge>
-                        )}
-                      </NavLink>
-                    </SidebarMenuItem>
-                  );
-                    })}
-                  </SidebarMenu>
-                )}
-              </>
-            )}
-          </>
+          <div className="px-2 pb-2">
+            {filteredGroups.map((group, index) => {
+              const collapsed = collapsedGroups.has(group.id);
+              const GroupIcon = group.icon;
+              return (
+                <div key={group.id} className={cn(index > 0 && "mt-4")}>
+                  <button type="button" onClick={() => toggleGroup(group.id)} className="w-full">
+                    <SidebarGroupLabel className="flex items-center justify-between cursor-pointer hover:text-sidebar-foreground">
+                      <span className="flex items-center gap-2">
+                        {GroupIcon ? (
+                          <GroupIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                        ) : null}
+                        {group.label}
+                      </span>
+                      {collapsed ? (
+                        <ChevronRight className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </SidebarGroupLabel>
+                  </button>
+                  {!collapsed && (
+                    <SidebarMenu>{group.items.map((item) => renderNavItem(item))}</SidebarMenu>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </SidebarContent>
 
