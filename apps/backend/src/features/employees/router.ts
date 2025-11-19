@@ -365,7 +365,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
       .eq('tenant_id', tenantId)
       .eq('employee_id', employeeId)
     if (statsQuery.error) return c.json({ error: statsQuery.error.message }, 400)
-    const statsRows = statsQuery.data ?? []
+    const statsRows = (statsQuery.data ?? []) as Array<Database['public']['Tables']['employee_documents']['Row']>
     const stats = statsRows.reduce<EmployeeDocumentStats>(
       (acc, doc) => {
         acc.total += 1

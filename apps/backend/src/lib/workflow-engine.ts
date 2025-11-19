@@ -7,6 +7,16 @@ import type {
 
 type Supabase = SupabaseClient<Database>
 
+type WorkflowRow = Pick<
+  Database['public']['Tables']['workflows']['Row'],
+  'id' | 'kind' | 'active_version_id'
+> & {
+  workflow_versions: Array<{
+    id: string
+    definition: WorkflowDefinition | null
+  }> | null
+}
+
 type WorkflowDefinition = {
   nodes: Array<{
     id: string
@@ -75,18 +85,20 @@ export class WorkflowEngine {
       return
     }
 
-    if (!workflows || workflows.length === 0) {
+    const typedWorkflows = (workflows ?? []) as unknown as WorkflowRow[]
+
+    if (typedWorkflows.length === 0) {
       console.log('[WORKFLOW-TRIGGER] No published workflows found for tenant:', tenantId)
       return
     }
 
     console.log('[WORKFLOW-TRIGGER] Found published workflows:', {
-      count: workflows.length,
-      workflowIds: workflows.map(w => w.id),
+      count: typedWorkflows.length,
+      workflowIds: typedWorkflows.map((workflow) => workflow.id),
     })
 
     // Check each workflow's definition for matching trigger
-    for (const workflow of workflows) {
+    for (const workflow of typedWorkflows) {
       const version = Array.isArray(workflow.workflow_versions)
         ? workflow.workflow_versions[0]
         : null
@@ -1004,4 +1016,3 @@ export class WorkflowEngine {
     }
   }
 }
-

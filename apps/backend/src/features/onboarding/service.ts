@@ -63,7 +63,8 @@ export async function generateDummyEmployees(
       .select('id')
       .eq('tenant_id', tenantId)
     if (deptData) {
-      availableDepartments = deptData.map((d) => d.id)
+      const departmentRows = deptData as Array<Pick<Database['public']['Tables']['departments']['Row'], 'id'>>
+      availableDepartments = departmentRows.map((department) => department.id)
     }
   }
 
@@ -265,7 +266,8 @@ export async function generateDummyApprovals(
       .eq('status', 'active')
       .limit(100)
     if (empData) {
-      availableEmployeeIds = empData.map((e) => e.id)
+      const employeeRows = empData as Array<Pick<Database['public']['Tables']['employees']['Row'], 'id'>>
+      availableEmployeeIds = employeeRows.map((employee) => employee.id)
     }
   }
 
@@ -477,4 +479,3 @@ export async function generateDummyApprovals(
     },
   }
 }
-

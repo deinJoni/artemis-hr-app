@@ -21,6 +21,8 @@ const MAX_LIST_LIMIT = 100
 
 type Supabase = SupabaseClient<Database>
 
+type UnknownRecord = Record<string, unknown>
+
 const normalizeDatetime = (value: unknown): string | null => {
   if (value === null || value === undefined) return null
   if (typeof value === 'string') {
@@ -40,7 +42,7 @@ const normalizeDatetime = (value: unknown): string | null => {
   return null
 }
 
-const mapNewsRecord = (record: Record<string, unknown>) => {
+const mapNewsRecord = (record: UnknownRecord) => {
   // Normalize datetime fields before validation
   const normalized = {
     ...record,
@@ -62,7 +64,7 @@ const mapNewsRecord = (record: Record<string, unknown>) => {
   return parsed.data
 }
 
-const mapActivityRecord = (record: Record<string, unknown>) => {
+const mapActivityRecord = (record: UnknownRecord) => {
   const parsed = CompanyNewsActivitySchema.safeParse(record)
   if (!parsed.success) {
     throw new Error('Unexpected news activity payload')
@@ -149,7 +151,8 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
       const { data, count, error } = await query
       if (error) throw new Error(error.message)
 
-      const news = (data ?? []).map((record) => mapNewsRecord(record as unknown as Record<string, unknown>))
+      const newsRecords = (data ?? []) as unknown as UnknownRecord[]
+      const news = newsRecords.map((record) => mapNewsRecord(record))
       const payload = CompanyNewsListResponseSchema.parse({
         news,
         total: count ?? news.length,
@@ -198,7 +201,8 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
 
       if (error) throw new Error(error.message)
 
-      const news = (data ?? []).map((record) => mapNewsRecord(record as unknown as Record<string, unknown>))
+      const newsRecords = (data ?? []) as unknown as UnknownRecord[]
+      const news = newsRecords.map((record) => mapNewsRecord(record))
       return c.json({ news })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unable to load latest news'
@@ -236,7 +240,7 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
       if (error) throw new Error(error.message)
       if (!data) return c.json({ error: 'News item not found' }, 404)
 
-      const news = mapNewsRecord(data as unknown as Record<string, unknown>)
+      const news = mapNewsRecord(data as unknown as UnknownRecord)
 
       if (!includeActivity) {
         return c.json({ news })
@@ -254,7 +258,7 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
       }
 
       const parsed = CompanyNewsActivityResponseSchema.parse({
-        activity: (activity ?? []).map((record) => mapActivityRecord(record as unknown as Record<string, unknown>)),
+        activity: ((activity ?? []) as unknown as UnknownRecord[]).map((record) => mapActivityRecord(record)),
       })
 
       return c.json({ news, ...parsed })
@@ -315,7 +319,7 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
         .single()
 
       if (error) throw new Error(error.message)
-      const news = mapNewsRecord(data as unknown as Record<string, unknown>)
+      const news = mapNewsRecord(data as unknown as UnknownRecord)
 
       await logNewsActivity(supabase, input.tenantId, news.id, user.id, 'created', {
         category: news.category,
@@ -396,7 +400,7 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
         .single()
 
       if (error) throw new Error(error.message)
-      const news = mapNewsRecord(data as unknown as Record<string, unknown>)
+      const news = mapNewsRecord(data as unknown as UnknownRecord)
 
       await logNewsActivity(supabase, tenantId, news.id, user.id, 'updated', updates)
 
@@ -452,7 +456,7 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
       if (!data) throw new Error('No data returned')
 
       // mapNewsRecord handles datetime normalization
-      const news = mapNewsRecord(data as unknown as Record<string, unknown>)
+      const news = mapNewsRecord(data as unknown as UnknownRecord)
 
       const { ipAddress, userAgent } = extractRequestInfo(c.req)
       await logNewsActivity(supabase, tenantId, news.id, user.id, 'published', {
@@ -505,7 +509,7 @@ export const registerNewsRoutes = (app: Hono<Env>) => {
       if (!data) throw new Error('No data returned')
 
       // mapNewsRecord handles datetime normalization
-      const news = mapNewsRecord(data as unknown as Record<string, unknown>)
+      const news = mapNewsRecord(data as unknown as UnknownRecord)
 
       await logNewsActivity(supabase, tenantId, news.id, user.id, 'unpublished')
       return c.json({ news })

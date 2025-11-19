@@ -21,6 +21,8 @@ import {
 } from '../features/tasks/task-service'
 import { extractRequestInfo } from '../lib/audit-logger'
 
+type WorkflowRunStepRow = Database['public']['Tables']['workflow_run_steps']['Row']
+
 export const registerTaskRoutes = (app: Hono<Env>) => {
   app.get('/api/tasks', async (c) => {
     const supabase = c.get('supabase') as SupabaseClient<Database>
@@ -84,9 +86,8 @@ export const registerTaskRoutes = (app: Hono<Env>) => {
         throw new Error(error.message)
       }
 
-      const tasks = (data ?? []).map((row) =>
-        mapRunStepToTask(row as Database['public']['Tables']['workflow_run_steps']['Row']),
-      )
+      const rows = (data ?? []) as WorkflowRunStepRow[]
+      const tasks = rows.map((row) => mapRunStepToTask(row))
 
       const payload = TaskListResponseSchema.safeParse({ tasks })
       if (!payload.success) {
@@ -268,4 +269,3 @@ export const registerTaskRoutes = (app: Hono<Env>) => {
     }
   })
 }
-
