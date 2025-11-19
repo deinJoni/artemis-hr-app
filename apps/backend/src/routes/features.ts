@@ -59,7 +59,7 @@ export const registerFeatureRoutes = (app: Hono<Env>) => {
     }
 
     const tenantsWithFeatures = await Promise.all(
-      (tenants ?? []).map(async (tenant) => ({
+      (tenants ?? []).map(async (tenant: { id: string; name: string }) => ({
         tenant_id: tenant.id,
         tenant_name: tenant.name,
         features: await fetchTenantFeatures(supabaseAdmin, tenant.id),
