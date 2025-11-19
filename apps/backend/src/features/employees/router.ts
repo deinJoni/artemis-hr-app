@@ -920,22 +920,50 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
   })
 
   app.delete('/api/employees/:tenantId/:id', async (c) => {
-    const supabase = c.get('supabase') as SupabaseClient<Database>
-    const tenantId = c.req.param('tenantId')
-    const id = c.req.param('id')
+    try {
+      const supabase = c.get('supabase') as SupabaseClient<Database>
+      const user = c.get('user') as User
+      const tenantId = c.req.param('tenantId')
+      const id = c.req.param('id')
 
-    const canWrite = await supabase.rpc('app_has_permission', { permission: 'employees.write', tenant: tenantId })
-    if (canWrite.error) return c.json({ error: canWrite.error.message }, 400)
-    if (!canWrite.data) return c.json({ error: 'Forbidden' }, 403)
+      const canDelete = await supabase.rpc('app_has_permission', { permission: 'employees.delete', tenant: tenantId })
+      if (canDelete.error) return c.json({ error: canDelete.error.message }, 400)
+      if (!canDelete.data) {
+        const canWrite = await supabase.rpc('app_has_permission', { permission: 'employees.write', tenant: tenantId })
+        if (canWrite.error) return c.json({ error: canWrite.error.message }, 400)
+        if (!canWrite.data) return c.json({ error: 'Forbidden' }, 403)
+      }
 
-    const del = await supabase
-      .from('employees')
-      .delete()
-      .eq('tenant_id', tenantId)
-      .eq('id', id)
-    if (del.error) return c.json({ error: del.error.message }, 400)
+      const existingEmployee = await supabase
+        .from('employees')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('id', id)
+        .maybeSingle()
+      if (existingEmployee.error) return c.json({ error: existingEmployee.error.message }, 400)
+      if (!existingEmployee.data) return c.json({ error: 'Employee not found' }, 404)
 
-    return c.redirect(`/api/employees/${tenantId}`)
+      const cleanupResult = await deleteEmployeeWithCleanup({
+        supabase,
+        tenantId,
+        employeeId: id,
+      })
+      if ('error' in cleanupResult) {
+        return c.json({ error: cleanupResult.error }, 400)
+      }
+
+      const { ipAddress, userAgent } = extractRequestInfo(c.req)
+      const auditLogger = new AuditLogger(supabase)
+      await auditLogger.logEmployeeDeletion(tenantId, id, user.id, existingEmployee.data, ipAddress, userAgent)
+
+      return c.json({ success: true })
+    } catch (error) {
+      console.error('Failed to delete employee', error)
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Internal server error' },
+        500,
+      )
+    }
   })
 
   // Bulk delete employees
@@ -988,26 +1016,27 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     for (const employeeId of employee_ids) {
       try {
         const employee = employees?.find((e: { id: string }) => e.id === employeeId)
-        const del = await supabase
-          .from('employees')
-          .delete()
-          .eq('tenant_id', tenantId)
-          .eq('id', employeeId)
+        const cleanupResult = await deleteEmployeeWithCleanup({
+          supabase,
+          tenantId,
+          employeeId,
+        })
 
-        if (del.error) {
-          errors.push({ employee_id: employeeId, error: del.error.message })
-        } else {
-          successCount++
-          // Create audit log
-          await auditLogger.logEmployeeDeletion(
-            tenantId,
-            employeeId,
-            user.id,
-            employee || null,
-            ipAddress,
-            userAgent,
-          )
+        if ('error' in cleanupResult) {
+          errors.push({ employee_id: employeeId, error: cleanupResult.error })
+          continue
         }
+
+        successCount++
+        // Create audit log
+        await auditLogger.logEmployeeDeletion(
+          tenantId,
+          employeeId,
+          user.id,
+          employee || null,
+          ipAddress,
+          userAgent,
+        )
       } catch (err) {
         errors.push({
           employee_id: employeeId,
@@ -1553,6 +1582,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
         description: parsed.data.description ?? null,
         team_lead_id: parsed.data.team_lead_id ?? null,
         department_id: parsed.data.department_id ?? null,
+        office_location_id: parsed.data.office_location_id ?? null,
       })
       .select()
       .single()
@@ -1766,6 +1796,72 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     return c.json(EmployeeAuditLogSchema.parse(auditEntry.data))
   })
 
+}
+
+type DeleteEmployeeCleanupParams = {
+  supabase: SupabaseClient<Database>
+  tenantId: string
+  employeeId: string
+}
+
+type DeleteEmployeeCleanupResult =
+  | { success: true }
+  | { error: string }
+
+async function deleteEmployeeWithCleanup({
+  supabase,
+  tenantId,
+  employeeId,
+}: DeleteEmployeeCleanupParams): Promise<DeleteEmployeeCleanupResult> {
+  const teamCleanup = await supabase.from('team_members').delete().eq('employee_id', employeeId)
+  if (teamCleanup.error) {
+    return { error: teamCleanup.error.message }
+  }
+
+  const { data: documents, error: documentsError } = await supabase
+    .from('employee_documents')
+    .select('storage_path')
+    .eq('tenant_id', tenantId)
+    .eq('employee_id', employeeId)
+
+  if (documentsError) {
+    return { error: documentsError.message }
+  }
+
+  if (documents && documents.length > 0) {
+    const docDelete = await supabase
+      .from('employee_documents')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+    if (docDelete.error) {
+      return { error: docDelete.error.message }
+    }
+
+    const storagePaths = documents
+      .map((doc) => doc.storage_path)
+      .filter((path): path is string => Boolean(path))
+    if (storagePaths.length > 0) {
+      await supabaseAdmin.storage
+        .from(DOCUMENT_BUCKET)
+        .remove(storagePaths)
+        .catch((error) => {
+          console.error('Failed to remove employee document files:', error)
+        })
+    }
+  }
+
+  const employeeDelete = await supabase
+    .from('employees')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('id', employeeId)
+
+  if (employeeDelete.error) {
+    return { error: employeeDelete.error.message }
+  }
+
+  return { success: true }
 }
 
 const validateAndCoerceCustomFields = async (

@@ -737,7 +737,25 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!response.ok) throw new Error("Unable to delete employee");
+        if (!response.ok) {
+          let errorMessage = "Unable to delete employee";
+          const rawMessage = await response.text().catch(() => null);
+          if (rawMessage) {
+            try {
+              const parsed = JSON.parse(rawMessage);
+              if (typeof parsed?.error === "string" && parsed.error.trim().length > 0) {
+                errorMessage = parsed.error.trim();
+              } else if (rawMessage.trim().length > 0) {
+                errorMessage = rawMessage.trim();
+              }
+            } catch {
+              if (rawMessage.trim().length > 0) {
+                errorMessage = rawMessage.trim();
+              }
+            }
+          }
+          throw new Error(errorMessage);
+        }
 
         const isLastItemOnPage =
           total > 0 && total === pageIndex * pageSize + 1 && pageIndex > 0 && dataLength === 1;

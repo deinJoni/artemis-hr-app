@@ -1,15 +1,16 @@
 import * as React from "react";
-import { 
-  Plus, 
-  Users, 
-  Edit, 
-  Trash2, 
+import {
+  Plus,
+  Users,
+  Edit,
+  Trash2,
   Loader2,
   RefreshCw,
   Search,
   UserPlus,
   UserMinus,
   Building2,
+  MapPin,
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -22,8 +23,10 @@ import { cn } from "~/lib/utils";
 import {
   TeamListResponseSchema,
   TeamWithMembersSchema,
+  OfficeLocationListResponseSchema,
   type TeamWithMembers,
   type Employee,
+  type OfficeLocation,
 } from "@vibe/shared";
 
 type TeamState = {
@@ -63,22 +66,25 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
   const [editingTeam, setEditingTeam] = React.useState<string | null>(null);
   const [selectedTeam, setSelectedTeam] = React.useState<string | null>(null);
   const [teamDetail, setTeamDetail] = React.useState<TeamWithMembers | null>(null);
-  const [editForm, setEditForm] = React.useState<{ 
-    name: string; 
+  const [editForm, setEditForm] = React.useState<{
+    name: string;
     description: string;
     teamLeadId: string;
     departmentId: string;
+    officeLocationId: string;
   }>({
     name: "",
     description: "",
     teamLeadId: "",
     departmentId: "",
+    officeLocationId: "",
   });
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = React.useState(false);
   const [departments, setDepartments] = React.useState<Array<{ id: string; name: string }>>([]);
   const [employees, setEmployees] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [officeLocations, setOfficeLocations] = React.useState<OfficeLocation[]>([]);
   const [addingMembers, setAddingMembers] = React.useState(false);
   const [selectedEmployees, setSelectedEmployees] = React.useState<Set<string>>(new Set());
 
@@ -144,11 +150,14 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
           return;
         }
 
-        const [deptRes, empRes] = await Promise.all([
+        const [deptRes, empRes, locRes] = await Promise.all([
           fetch(`${apiBaseUrl}/api/departments/${tenantJson.id}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${apiBaseUrl}/api/employees/${tenantJson.id}?pageSize=1000`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${apiBaseUrl}/api/office-locations/${tenantJson.id}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -157,12 +166,19 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
 
         const deptJson = await deptRes.json();
         const empJson = await empRes.json();
+        const locJson = locRes.ok ? await locRes.json() : null;
 
         if (deptRes.ok && deptJson.departments) {
           setDepartments(deptJson.departments);
         }
         if (empRes.ok && empJson.employees) {
           setEmployees(empJson.employees.map((e: Employee) => ({ id: e.id, name: e.name })));
+        }
+        if (locRes.ok && locJson) {
+          const parsedLocations = OfficeLocationListResponseSchema.safeParse(locJson);
+          if (parsedLocations.success) {
+            setOfficeLocations(parsedLocations.data.locations ?? []);
+          }
         }
       } catch (e: unknown) {
         console.error("Failed to load dropdowns:", e);
@@ -255,6 +271,7 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
           ...(editForm.description.trim() ? { description: editForm.description.trim() } : {}),
           ...(editForm.teamLeadId ? { team_lead_id: editForm.teamLeadId } : {}),
           ...(editForm.departmentId ? { department_id: editForm.departmentId } : {}),
+          ...(editForm.officeLocationId ? { office_location_id: editForm.officeLocationId } : {}),
         }),
       });
 
@@ -263,7 +280,7 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
         throw new Error(json.error || `Failed to ${editingTeam === "new" ? "create" : "update"} team`);
       }
 
-      setEditForm({ name: "", description: "", teamLeadId: "", departmentId: "" });
+      setEditForm({ name: "", description: "", teamLeadId: "", departmentId: "", officeLocationId: "" });
       const savedTeamId = editingTeam;
       setEditingTeam(null);
       await loadTeams();
@@ -397,6 +414,12 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
     }
   };
 
+  const officeLocationMap = React.useMemo(() => {
+    const map = new Map<string, OfficeLocation>();
+    officeLocations.forEach(location => map.set(location.id, location));
+    return map;
+  }, [officeLocations]);
+
   const filteredTeams = React.useMemo(() => {
     let filtered = state.teams;
     if (searchTerm.trim()) {
@@ -410,6 +433,10 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
     }
     return filtered;
   }, [state.teams, searchTerm, departmentFilter]);
+
+  const detailLocation = teamDetail?.office_location_id
+    ? officeLocationMap.get(teamDetail.office_location_id)
+    : undefined;
 
   if (state.status === "error" && state.teams.length === 0) {
     return (
@@ -451,7 +478,7 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                   setEditingTeam("new");
                   setSelectedTeam(null);
                   setTeamDetail(null);
-                  setEditForm({ name: "", description: "", teamLeadId: "", departmentId: "" });
+                  setEditForm({ name: "", description: "", teamLeadId: "", departmentId: "", officeLocationId: "" });
                 }}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -509,8 +536,10 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {filteredTeams.map(team => (
-                    <div
+                  {filteredTeams.map(team => {
+                    const locationMeta = team.office_location_id ? officeLocationMap.get(team.office_location_id) : undefined;
+                    return (
+                      <div
                       key={team.id}
                       className={cn(
                         "flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors cursor-pointer",
@@ -541,6 +570,15 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                             <span>{departments.find(d => d.id === team.department_id)?.name || "Unknown department"}</span>
                           </div>
                         )}
+                        {locationMeta && (
+                          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+                            <MapPin className="h-3 w-3" />
+                            <span>{locationMeta.name}</span>
+                            {locationMeta.timezone && (
+                              <span className="text-[11px] text-muted-foreground/80">({locationMeta.timezone})</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -554,6 +592,7 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                               description: team.description || "",
                               teamLeadId: team.team_lead_id || "",
                               departmentId: team.department_id || "",
+                              officeLocationId: team.office_location_id || "",
                             });
                           }}
                           className="h-8 w-8 p-0"
@@ -570,7 +609,8 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                         </Button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -641,6 +681,26 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                     </select>
                   </div>
                   
+                  <div>
+                    <Label htmlFor="teamLocation">Office Location</Label>
+                    <select
+                      id="teamLocation"
+                      value={editForm.officeLocationId}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                        setEditForm(prev => ({ ...prev, officeLocationId: e.target.value }))
+                      }
+                      className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                    >
+                      <option value="">No office location</option>
+                      {officeLocations.map(location => (
+                        <option key={location.id} value={location.id}>
+                          {location.name}
+                          {location.timezone ? ` (${location.timezone})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
                   <div className="flex gap-2">
                     <Button
                       onClick={handleSaveTeam}
@@ -656,7 +716,7 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                       variant="outline"
                       onClick={() => {
                         setEditingTeam(null);
-                        setEditForm({ name: "", description: "", teamLeadId: "", departmentId: "" });
+                        setEditForm({ name: "", description: "", teamLeadId: "", departmentId: "", officeLocationId: "" });
                       }}
                     >
                       Cancel
@@ -673,6 +733,15 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
               <CardContent className="space-y-4">
                 {teamDetail.description && (
                   <p className="text-sm text-muted-foreground">{teamDetail.description}</p>
+                )}
+                {detailLocation && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <MapPin className="h-4 w-4" />
+                    <span>{detailLocation.name}</span>
+                    {detailLocation.timezone && (
+                      <span className="text-xs text-muted-foreground/80">({detailLocation.timezone})</span>
+                    )}
+                  </div>
                 )}
                 
                 <div>

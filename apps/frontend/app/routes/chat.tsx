@@ -6,7 +6,13 @@ import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { Badge } from "~/components/ui/badge";
 import { cn } from "~/lib/utils";
-import { ConversationWithMessagesSchema, type ConversationWithMessages, type ToolCall } from "@vibe/shared";
+import {
+  ConversationWithMessagesSchema,
+  ChatListResponseSchema,
+  type ConversationSummary,
+  type ConversationWithMessages,
+  type ToolCall,
+} from "@vibe/shared";
 import { Loader2, MessageCircle, RefreshCw, Send, Sparkles } from "lucide-react";
 
 type ChatMessageView = {
@@ -34,6 +40,9 @@ export default function ChatRoute() {
   const [initialLoading, setInitialLoading] = React.useState(true);
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [conversationList, setConversationList] = React.useState<ConversationSummary[]>([]);
+  const [listLoading, setListLoading] = React.useState(false);
+  const [listError, setListError] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
 
   const normalizedBaseUrl = React.useMemo(() => apiBaseUrl.replace(/\/$/, ""), [apiBaseUrl]);
@@ -127,16 +136,51 @@ export default function ChatRoute() {
     [mapMessages, normalizedBaseUrl, parseConversation, session],
   );
 
+  const fetchConversationList = React.useCallback(async () => {
+    if (!session) return;
+    setListLoading(true);
+    setListError(null);
+
+    try {
+      const res = await fetch(`${normalizedBaseUrl}/api/chats`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || res.statusText);
+      }
+
+      const parsed = ChatListResponseSchema.safeParse(data);
+      if (!parsed.success) {
+        throw new Error("Unexpected conversation list payload");
+      }
+
+      setConversationList(parsed.data.conversations);
+    } catch (err) {
+      console.error("Failed to load conversations list:", err);
+      const message = err instanceof Error ? err.message : "Unable to load conversations.";
+      setListError(message);
+    } finally {
+      setListLoading(false);
+    }
+  }, [normalizedBaseUrl, session]);
+
   React.useEffect(() => {
     if (!session) {
       setConversation(null);
       setMessages([]);
       setConversationId(null);
       setInitialLoading(false);
+      setConversationList([]);
+      setListLoading(false);
+      setListError(null);
       return;
     }
     void fetchConversation(undefined, { initial: true });
-  }, [fetchConversation, session]);
+    void fetchConversationList();
+  }, [fetchConversation, fetchConversationList, session]);
 
   React.useEffect(() => {
     if (scrollRef.current) {
@@ -204,6 +248,8 @@ export default function ChatRoute() {
         } else {
           await fetchConversation(undefined, { initial: true });
         }
+
+        await fetchConversationList();
       } catch (err) {
         console.error("Failed to send message:", err);
         const message = err instanceof Error ? err.message : "Unable to send message.";
@@ -214,7 +260,7 @@ export default function ChatRoute() {
         setSending(false);
       }
     },
-    [conversationId, fetchConversation, input, messages, normalizedBaseUrl, sending, session],
+    [conversationId, fetchConversation, fetchConversationList, input, messages, normalizedBaseUrl, sending, session],
   );
 
   const handleNewConversation = React.useCallback(() => {
@@ -224,6 +270,14 @@ export default function ChatRoute() {
     setInput("");
     setError(null);
   }, []);
+
+  const handleSelectConversation = React.useCallback(
+    (id: string) => {
+      setConversationId(id);
+      void fetchConversation(id, { initial: true });
+    },
+    [fetchConversation],
+  );
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -267,26 +321,6 @@ export default function ChatRoute() {
             provide contextual answers.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => fetchConversation(conversationId ?? undefined, { initial: true })}
-            disabled={initialLoading || sending}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNewConversation}
-            disabled={sending || (!hasMessages && !conversationId)}
-          >
-            <MessageCircle className="mr-2 h-4 w-4" />
-            New Conversation
-          </Button>
-        </div>
       </div>
 
       {error ? (
@@ -295,82 +329,183 @@ export default function ChatRoute() {
         </div>
       ) : null}
 
-      <Card className="border border-border/60">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Conversation</CardTitle>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="secondary">
-              {conversation?.status ? conversation.status.toUpperCase() : "DRAFT"}
-            </Badge>
-            {conversation?.updated_at ? (
-              <span>
-                Updated {new Date(conversation.updated_at).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            ) : null}
-          </div>
-        </CardHeader>
-        <CardContent className="flex h-[70vh] flex-col gap-4 p-0">
-          <div className="flex-1 overflow-hidden px-4">
-            <div className="h-full overflow-y-auto pr-4">
-              <div className="space-y-4 py-4">
-                {initialLoading ? (
-                  <div className="flex h-full items-center justify-center py-20 text-muted-foreground">
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Loading conversation…
-                  </div>
-                ) : hasMessages ? (
-                  messages.map((message) => (
-                    <ChatBubble key={message.id} message={message} />
-                  ))
-                ) : (
-                  <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground">
-                    <Sparkles className="h-8 w-8" />
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-foreground">Start a conversation</p>
-                      <p className="text-sm">
-                        Ask Artemis about employees, leave balances, or organizational policies.
-                      </p>
+      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+        <ConversationSidebar
+          conversations={conversationList}
+          listLoading={listLoading}
+          listError={listError}
+          selectedId={conversationId}
+          onSelect={handleSelectConversation}
+          onNewConversation={handleNewConversation}
+          onRefresh={() => {
+            void fetchConversation(conversationId ?? undefined, { initial: true });
+            void fetchConversationList();
+          }}
+          disableNew={sending}
+        />
+
+        <Card className="border border-border/60">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Conversation</CardTitle>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant="secondary">
+                {conversation?.status ? conversation.status.toUpperCase() : "DRAFT"}
+              </Badge>
+              {conversation?.updated_at ? (
+                <span>
+                  Updated {new Date(conversation.updated_at).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              ) : null}
+            </div>
+          </CardHeader>
+          <CardContent className="flex h-[70vh] flex-col gap-4 p-0">
+            <div className="flex-1 overflow-hidden px-4">
+              <div className="h-full overflow-y-auto pr-4">
+                <div className="space-y-4 py-4">
+                  {initialLoading ? (
+                    <div className="flex h-full items-center justify-center py-20 text-muted-foreground">
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Loading conversation…
                     </div>
-                  </div>
-                )}
-                <div ref={scrollRef} />
+                  ) : hasMessages ? (
+                    messages.map((message) => (
+                      <ChatBubble key={message.id} message={message} />
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground">
+                      <Sparkles className="h-8 w-8" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">Start a conversation</p>
+                        <p className="text-sm">
+                          Ask Artemis about employees, leave balances, or organizational policies.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={scrollRef} />
+                </div>
               </div>
             </div>
-          </div>
 
-          <form onSubmit={handleSend} className="border-t border-border/60 bg-muted/20 p-4">
-            <fieldset className="flex flex-col gap-3" disabled={sending}>
-              <Textarea
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Type your question and press Enter to send. Use Shift + Enter for a new line."
-                rows={3}
-                className="resize-none"
-              />
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-xs text-muted-foreground">
-                  Artemis can run internal tools when needed. Tool results will be shown inline.
-                </p>
-                <Button type="submit" disabled={sending || !input.trim()}>
-                  {sending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Sending…
-                    </>
-                  ) : (
-                    <>
-                      <Send className="mr-2 h-4 w-4" />
-                      Send
-                    </>
-                  )}
-                </Button>
-              </div>
-            </fieldset>
-          </form>
-        </CardContent>
-      </Card>
+            <form onSubmit={handleSend} className="border-t border-border/60 bg-muted/20 p-4">
+              <fieldset className="flex flex-col gap-3" disabled={sending}>
+                <Textarea
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type your question and press Enter to send. Use Shift + Enter for a new line."
+                  rows={3}
+                  className="resize-none"
+                />
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-xs text-muted-foreground">
+                    Artemis can run internal tools when needed. Tool results will be shown inline.
+                  </p>
+                  <Button type="submit" disabled={sending || !input.trim()}>
+                    {sending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Sending…
+                      </>
+                    ) : (
+                      <>
+                        <Send className="mr-2 h-4 w-4" />
+                        Send
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </fieldset>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
+  );
+}
+
+function ConversationSidebar({
+  conversations,
+  listLoading,
+  listError,
+  selectedId,
+  onSelect,
+  onNewConversation,
+  onRefresh,
+  disableNew,
+}: {
+  conversations: ConversationSummary[];
+  listLoading: boolean;
+  listError: string | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onNewConversation: () => void;
+  onRefresh: () => void;
+  disableNew: boolean;
+}) {
+  return (
+    <Card className="border border-border/60">
+      <CardHeader>
+        <CardTitle className="text-base">Conversations</CardTitle>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={onNewConversation} disabled={disableNew}>
+            <MessageCircle className="mr-2 h-4 w-4" />
+            New
+          </Button>
+        </div>
+        {listError ? (
+          <p className="text-xs text-destructive">{listError}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">Recent chats sync across devices.</p>
+        )}
+      </CardHeader>
+      <CardContent className="max-h-[70vh] overflow-y-auto p-0">
+        {listLoading ? (
+          <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading conversations…
+          </div>
+        ) : conversations.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No conversations yet.
+          </div>
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {conversations.map((item) => {
+              const isActive = item.id === selectedId;
+              return (
+                <li key={item.id}>
+                  <button
+                    className={cn(
+                      "flex w-full flex-col gap-1 px-4 py-3 text-left text-sm transition-colors",
+                      isActive ? "bg-muted" : "hover:bg-muted/60",
+                    )}
+                    onClick={() => onSelect(item.id)}
+                    aria-current={isActive ? "true" : undefined}
+                  >
+                    <span className="font-medium text-foreground">
+                      {item.name ? item.name : "Untitled"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(item.last_updated).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

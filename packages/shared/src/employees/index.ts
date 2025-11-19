@@ -186,6 +186,7 @@ export const DepartmentSchema = z.object({
   parent_id: z.string().uuid().nullable(),
   head_employee_id: z.string().uuid().nullable(),
   cost_center: z.string().nullable(),
+  office_location_id: z.string().uuid().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -198,6 +199,7 @@ export const DepartmentCreateInputSchema = z.object({
   parent_id: z.string().uuid().optional(),
   head_employee_id: z.string().uuid().optional(),
   cost_center: z.string().optional(),
+  office_location_id: z.string().uuid().optional(),
 });
 export type DepartmentCreateInput = z.infer<typeof DepartmentCreateInputSchema>;
 
@@ -208,6 +210,7 @@ export const DepartmentUpdateInputSchema = requireAtLeastOneField(
     parent_id: z.string().uuid().optional().nullable(),
     head_employee_id: z.string().uuid().optional().nullable(),
     cost_center: z.string().optional().nullable(),
+    office_location_id: z.string().uuid().optional().nullable(),
   })
 );
 export type DepartmentUpdateInput = z.infer<typeof DepartmentUpdateInputSchema>;
@@ -220,6 +223,9 @@ export const DepartmentHierarchySchema = z.object({
   parent_id: z.string().uuid().nullable(),
   head_employee_id: z.string().uuid().nullable(),
   cost_center: z.string().nullable(),
+  office_location_id: z.string().uuid().nullable().optional(),
+  office_location_name: z.string().nullable().optional(),
+  office_location_timezone: z.string().nullable().optional(),
   level: z.number().int().min(0),
   path: z.array(z.string().uuid()),
   full_path: z.string(),
@@ -269,6 +275,7 @@ export const TeamSchema = z.object({
   description: z.string().nullable(),
   team_lead_id: z.string().uuid().nullable(),
   department_id: z.string().uuid().nullable(),
+  office_location_id: z.string().uuid().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -287,6 +294,7 @@ export const TeamCreateInputSchema = z.object({
   description: z.string().optional(),
   team_lead_id: z.string().uuid().optional(),
   department_id: z.string().uuid().optional(),
+  office_location_id: z.string().uuid().optional(),
 });
 export type TeamCreateInput = z.infer<typeof TeamCreateInputSchema>;
 
@@ -296,6 +304,7 @@ export const TeamUpdateInputSchema = requireAtLeastOneField(
     description: z.string().optional().nullable(),
     team_lead_id: z.string().uuid().optional().nullable(),
     department_id: z.string().uuid().optional().nullable(),
+    office_location_id: z.string().uuid().optional().nullable(),
   })
 );
 export type TeamUpdateInput = z.infer<typeof TeamUpdateInputSchema>;

@@ -1,16 +1,19 @@
 import * as React from "react";
 import type { Route } from "./+types/departments";
-import { 
-  Plus, 
-  Building2, 
-  Users, 
-  Edit, 
-  Trash2, 
-  ChevronRight, 
+import {
+  Plus,
+  Building2,
+  Users,
+  Edit,
+  Trash2,
+  ChevronRight,
   ChevronDown,
   Loader2,
   RefreshCw,
-  Search
+  Search,
+  UserCircle2,
+  MapPin,
+  CircleDollarSign,
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -21,8 +24,12 @@ import { cn } from "~/lib/utils";
 import {
   DepartmentListResponseSchema,
   DepartmentHierarchyResponseSchema,
+  EmployeeListResponseSchema,
+  OfficeLocationListResponseSchema,
   type Department,
   type DepartmentHierarchy,
+  type Employee,
+  type OfficeLocation,
 } from "@vibe/shared";
 
 type DepartmentWithStats = Department & {
@@ -57,83 +64,99 @@ export function meta(_: Route.MetaArgs) {
 export default function Departments({ loaderData }: Route.ComponentProps) {
   const { baseUrl } = (loaderData ?? { baseUrl: "http://localhost:8787" }) as { baseUrl: string };
   const apiBaseUrl = React.useMemo(() => baseUrl.replace(/\/$/, ""), [baseUrl]);
-  const [state, setState] = React.useState<DepartmentState>({ 
-    status: "idle", 
-    departments: [], 
-    hierarchy: [], 
-    error: null 
+  const [state, setState] = React.useState<DepartmentState>({
+    status: "idle",
+    departments: [],
+    hierarchy: [],
+    error: null,
   });
   const [searchTerm, setSearchTerm] = React.useState("");
   const [expandedDepartments, setExpandedDepartments] = React.useState<Set<string>>(new Set());
   const [editingDept, setEditingDept] = React.useState<string | null>(null);
-  const [editForm, setEditForm] = React.useState<{ name: string; description: string; parentId: string }>({
+  const [editForm, setEditForm] = React.useState<{
+    name: string;
+    description: string;
+    parentId: string;
+    headEmployeeId: string;
+    costCenter: string;
+    officeLocationId: string;
+  }>({
     name: "",
     description: "",
     parentId: "",
+    headEmployeeId: "",
+    costCenter: "",
+    officeLocationId: "",
   });
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [employeeOptions, setEmployeeOptions] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [officeLocations, setOfficeLocations] = React.useState<OfficeLocation[]>([]);
+
+  const resolveTenantContext = React.useCallback(async () => {
+    const session = (await supabase.auth.getSession()).data.session;
+    const token = session?.access_token;
+    if (!token) {
+      throw new Error("Missing access token");
+    }
+
+    const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };
+    if (!tenantRes.ok || typeof tenantJson.id !== "string") {
+      throw new Error(tenantJson.error || "Unable to resolve tenant");
+    }
+
+    return { token, tenantId: tenantJson.id };
+  }, [apiBaseUrl]);
 
   const loadDepartments = React.useCallback(async () => {
     setState(prev => ({ ...prev, status: "loading" }));
     try {
-      const session = (await supabase.auth.getSession()).data.session;
-      const token = session?.access_token;
-      if (!token) throw new Error("Missing access token");
+      const { token, tenantId } = await resolveTenantContext();
+      const parseJson = async (res: Response) => {
+        try {
+          return await res.json();
+        } catch {
+          return null;
+        }
+      };
 
-      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };
-      if (!tenantRes.ok || typeof tenantJson.id !== "string") {
-        throw new Error(tenantJson.error || "Unable to resolve tenant");
+      const [deptRes, hierarchyRes] = await Promise.all([
+        fetch(`${apiBaseUrl}/api/departments/${tenantId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${apiBaseUrl}/api/departments/${tenantId}/tree`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      const deptJson = await parseJson(deptRes);
+      if (!deptRes.ok || !deptJson) {
+        throw new Error(deptJson?.error || "Unable to load departments");
       }
-
-      // Load departments list
-      const deptRes = await fetch(`${apiBaseUrl}/api/departments/${tenantJson.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const deptJson = await deptRes.json();
-      if (!deptRes.ok) {
-        throw new Error(deptJson.error || "Unable to load departments");
-      }
-
       const deptParsed = DepartmentListResponseSchema.safeParse(deptJson);
       if (!deptParsed.success) {
         throw new Error("Unexpected department response shape");
       }
 
-      // Load hierarchy
-      const hierarchyRes = await fetch(`${apiBaseUrl}/api/departments/${tenantJson.id}/tree`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const hierarchyJson = await hierarchyRes.json();
-      if (!hierarchyRes.ok) {
-        throw new Error(hierarchyJson.error || "Unable to load department hierarchy");
+      const hierarchyJson = await parseJson(hierarchyRes);
+      if (!hierarchyRes.ok || !hierarchyJson) {
+        throw new Error(hierarchyJson?.error || "Unable to load department hierarchy");
       }
-
       const hierarchyParsed = DepartmentHierarchyResponseSchema.safeParse(hierarchyJson);
       if (!hierarchyParsed.success) {
         throw new Error("Unexpected hierarchy response shape");
       }
 
-      // Get employee counts for each department
-      const employeeCounts = await Promise.all(
-        deptParsed.data.departments.map(async (dept) => {
-          const empRes = await fetch(`${apiBaseUrl}/api/employees/${tenantJson.id}?departmentId=${dept.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const empJson = await empRes.json();
-          return {
-            departmentId: dept.id,
-            count: empJson.employees?.length || 0,
-          };
-        })
+      const countMap = new Map(
+        (hierarchyParsed.data.departments ?? []).map(node => [node.id, node.employee_count ?? 0]),
       );
 
       const departmentsWithStats = deptParsed.data.departments.map(dept => ({
         ...dept,
-        employeeCount: employeeCounts.find(c => c.departmentId === dept.id)?.count || 0,
+        employeeCount: countMap.get(dept.id) ?? 0,
       }));
 
       setState({
@@ -150,11 +173,52 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
         error: message,
       }));
     }
-  }, [apiBaseUrl]);
+  }, [apiBaseUrl, resolveTenantContext]);
+
+  const loadReferenceData = React.useCallback(async () => {
+    try {
+      const { token, tenantId } = await resolveTenantContext();
+      const [employeesRes, locationsRes] = await Promise.all([
+        fetch(`${apiBaseUrl}/api/employees/${tenantId}?pageSize=500&sort=name&order=asc`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${apiBaseUrl}/api/office-locations/${tenantId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      if (employeesRes.ok) {
+        const employeesJson = await employeesRes.json();
+        const employeesParsed = EmployeeListResponseSchema.safeParse(employeesJson);
+        if (employeesParsed.success) {
+          setEmployeeOptions(
+            employeesParsed.data.employees.map((employee: Employee) => ({
+              id: employee.id,
+              name: employee.name,
+            })),
+          );
+        }
+      }
+
+      if (locationsRes.ok) {
+        const locationsJson = await locationsRes.json();
+        const locationsParsed = OfficeLocationListResponseSchema.safeParse(locationsJson);
+        if (locationsParsed.success) {
+          setOfficeLocations(locationsParsed.data.locations ?? []);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load reference data:", err);
+    }
+  }, [apiBaseUrl, resolveTenantContext]);
 
   React.useEffect(() => {
     void loadDepartments();
   }, [loadDepartments]);
+
+  React.useEffect(() => {
+    void loadReferenceData();
+  }, [loadReferenceData]);
 
   const handleCreateDepartment = async () => {
     if (!editForm.name.trim()) {
@@ -166,36 +230,61 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
     setError(null);
 
     try {
-      const session = (await supabase.auth.getSession()).data.session;
-      const token = session?.access_token;
-      if (!token) throw new Error("Missing access token");
+      const { token, tenantId } = await resolveTenantContext();
+      const isNew = editingDept === "new";
 
-      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };
-      if (!tenantRes.ok || typeof tenantJson.id !== "string") {
-        throw new Error(tenantJson.error || "Unable to resolve tenant");
+      const url = isNew
+        ? `${apiBaseUrl}/api/departments/${tenantId}`
+        : `${apiBaseUrl}/api/departments/${tenantId}/${editingDept}`;
+
+      const payload: Record<string, unknown> = isNew
+        ? {
+            tenant_id: tenantId,
+            name: editForm.name.trim(),
+          }
+        : {
+            name: editForm.name.trim(),
+          };
+
+      const description = editForm.description.trim();
+      if (description) {
+        payload.description = description;
+      } else if (!isNew) {
+        payload.description = null;
       }
 
-      const url = editingDept === "new"
-        ? `${apiBaseUrl}/api/departments/${tenantJson.id}`
-        : `${apiBaseUrl}/api/departments/${tenantJson.id}/${editingDept}`;
-      
-      const method = editingDept === "new" ? "POST" : "PUT";
+      if (editForm.parentId) {
+        payload.parent_id = editForm.parentId;
+      } else if (!isNew) {
+        payload.parent_id = null;
+      }
+
+      if (editForm.headEmployeeId) {
+        payload.head_employee_id = editForm.headEmployeeId;
+      } else if (!isNew) {
+        payload.head_employee_id = null;
+      }
+
+      const costCenter = editForm.costCenter.trim();
+      if (costCenter) {
+        payload.cost_center = costCenter;
+      } else if (!isNew) {
+        payload.cost_center = null;
+      }
+
+      if (editForm.officeLocationId) {
+        payload.office_location_id = editForm.officeLocationId;
+      } else if (!isNew) {
+        payload.office_location_id = null;
+      }
 
       const response = await fetch(url, {
-        method,
+        method: isNew ? "POST" : "PUT",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          tenant_id: tenantJson.id,
-          name: editForm.name.trim(),
-          ...(editForm.description.trim() ? { description: editForm.description.trim() } : {}),
-          ...(editForm.parentId ? { parent_id: editForm.parentId } : {}),
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await response.json();
@@ -203,7 +292,7 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
         throw new Error(json.error || `Failed to ${editingDept === "new" ? "create" : "update"} department`);
       }
 
-      setEditForm({ name: "", description: "", parentId: "" });
+      setEditForm({ name: "", description: "", parentId: "", headEmployeeId: "", costCenter: "", officeLocationId: "" });
       setEditingDept(null);
       await loadDepartments();
     } catch (error: unknown) {
@@ -220,19 +309,8 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
     }
 
     try {
-      const session = (await supabase.auth.getSession()).data.session;
-      const token = session?.access_token;
-      if (!token) throw new Error("Missing access token");
-
-      const tenantRes = await fetch(`${apiBaseUrl}/api/tenants/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const tenantJson = (await tenantRes.json()) as { id?: string; error?: string };
-      if (!tenantRes.ok || typeof tenantJson.id !== "string") {
-        throw new Error(tenantJson.error || "Unable to resolve tenant");
-      }
-
-      const response = await fetch(`${apiBaseUrl}/api/departments/${tenantJson.id}/${deptId}`, {
+      const { token, tenantId } = await resolveTenantContext();
+      const response = await fetch(`${apiBaseUrl}/api/departments/${tenantId}/${deptId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -240,6 +318,11 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
       if (!response.ok) {
         const json = await response.json();
         throw new Error(json.error || "Failed to delete department");
+      }
+
+      if (editingDept === deptId) {
+        setEditingDept(null);
+        setEditForm({ name: "", description: "", parentId: "", headEmployeeId: "", costCenter: "", officeLocationId: "" });
       }
 
       await loadDepartments();
@@ -261,11 +344,18 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
     });
   };
 
+  const hierarchyById = React.useMemo(() => {
+    const map = new Map<string, DepartmentHierarchy>();
+    state.hierarchy.forEach(node => map.set(node.id, node));
+    return map;
+  }, [state.hierarchy]);
+
   const filteredDepartments = React.useMemo(() => {
     if (!searchTerm.trim()) return state.departments;
     return state.departments.filter(dept =>
       dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      dept.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      dept.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      dept.cost_center?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [state.departments, searchTerm]);
 
@@ -275,6 +365,7 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
     return children.map(dept => {
       const isExpanded = expandedDepartments.has(dept.id);
       const hasChildren = departments.some(d => d.parent_id === dept.id);
+      const hierarchyMeta = hierarchyById.get(dept.id);
       
       return (
         <div key={dept.id} className="space-y-1">
@@ -314,6 +405,29 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
               {dept.description && (
                 <p className="text-xs text-muted-foreground truncate">{dept.description}</p>
               )}
+              {dept.cost_center && (
+                <Badge variant="outline" className="mt-1 text-xs flex items-center gap-1 w-fit">
+                  <CircleDollarSign className="h-3 w-3" />
+                  {dept.cost_center}
+                </Badge>
+              )}
+              {hierarchyMeta?.head_name && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                  <UserCircle2 className="h-3 w-3" />
+                  <span>{hierarchyMeta.head_name}</span>
+                </div>
+              )}
+              {hierarchyMeta?.office_location_name && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                  <MapPin className="h-3 w-3" />
+                  <span>{hierarchyMeta.office_location_name}</span>
+                  {hierarchyMeta.office_location_timezone && (
+                    <span className="text-[11px] text-muted-foreground/80">
+                      ({hierarchyMeta.office_location_timezone})
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             
             <div className="flex items-center gap-1">
@@ -326,6 +440,9 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
                     name: dept.name,
                     description: dept.description || "",
                     parentId: dept.parent_id || "",
+                    headEmployeeId: dept.head_employee_id || "",
+                    costCenter: dept.cost_center || "",
+                    officeLocationId: dept.office_location_id || "",
                   });
                 }}
                 className="h-8 w-8 p-0"
@@ -391,7 +508,7 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
                 size="sm"
                 onClick={() => {
                   setEditingDept("new");
-                  setEditForm({ name: "", description: "", parentId: "" });
+                  setEditForm({ name: "", description: "", parentId: "", headEmployeeId: "", costCenter: "", officeLocationId: "" });
                 }}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -483,6 +600,54 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
                   </select>
                 </div>
                 
+                <div>
+                  <label className="text-sm font-medium">Department Head</label>
+                  <select
+                    value={editForm.headEmployeeId}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                      setEditForm(prev => ({ ...prev, headEmployeeId: e.target.value }))
+                    }
+                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  >
+                    <option value="">No department head</option>
+                    {employeeOptions.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Cost Center</label>
+                  <Input
+                    value={editForm.costCenter}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setEditForm(prev => ({ ...prev, costCenter: e.target.value }))
+                    }
+                    placeholder="e.g., OPS-1001"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Office Location</label>
+                  <select
+                    value={editForm.officeLocationId}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                      setEditForm(prev => ({ ...prev, officeLocationId: e.target.value }))
+                    }
+                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  >
+                    <option value="">No office location</option>
+                    {officeLocations.map(location => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                        {location.timezone ? ` (${location.timezone})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
                 <div className="flex gap-2">
                   <Button
                     onClick={handleCreateDepartment}
@@ -498,7 +663,7 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
                     variant="outline"
                     onClick={() => {
                       setEditingDept(null);
-                      setEditForm({ name: "", description: "", parentId: "" });
+                      setEditForm({ name: "", description: "", parentId: "", headEmployeeId: "", costCenter: "", officeLocationId: "" });
                     }}
                   >
                     Cancel
