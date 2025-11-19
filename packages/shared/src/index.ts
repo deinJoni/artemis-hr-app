@@ -10,3 +10,6 @@ export * from "./time-management";
 export * from "./recruiting";
 export * from "./chat";
 export * from "./features";
+export * from "./self-service/profile";
+export * from "./news";
+export * from "./onboarding";

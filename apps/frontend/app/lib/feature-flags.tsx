@@ -123,8 +123,18 @@ export function useFeatureFlags() {
 }
 
 export function useFeatureFlag(slug: string, fallback = false) {
-  const { featureMap } = useFeatureFlags();
-  return featureMap[slug]?.enabled ?? fallback;
+  try {
+    const { featureMap } = useFeatureFlags();
+    return featureMap[slug]?.enabled ?? fallback;
+  } catch (error) {
+    // If FeatureFlagProvider context is not available (e.g., in a portal),
+    // return the fallback value
+    if (error instanceof Error && error.message.includes("FeatureFlagProvider")) {
+      console.warn(`FeatureFlagProvider context not available for feature flag ${slug}, using fallback: ${fallback}`);
+      return fallback;
+    }
+    throw error;
+  }
 }
 
 export function useFeatureGroup(groupKey: string) {

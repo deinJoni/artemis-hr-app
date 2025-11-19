@@ -131,6 +131,13 @@ All `/api` routes are protected by the authentication middleware configured in `
 | GET | `/api/onboarding/tasks/:employeeId` | Returns outstanding onboarding tasks for the employee. |
 | PUT | `/api/onboarding/tasks/:id/complete` | Marks a workflow task as completed and advances the run. |
 
+### Sample Data Generation
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/api/onboarding/sample/employees` | Generate sample employee records for demo/testing. Requires `onboarding.sample_data` or `employees.write` permission. Max 100 employees per request. |
+| POST | `/api/onboarding/sample/approvals` | Generate sample approval requests for demo/testing. Requires `onboarding.sample_data` or `approvals.submit` permission. Max 50 approvals per request. |
+| POST | `/api/onboarding/sample/seed` | Generate both employees and approvals in a single request. Useful for populating a workspace with complete demo data. |
+
 ## Offboarding
 | Method | Path | Description |
 | --- | --- | --- |

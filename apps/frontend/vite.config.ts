@@ -11,6 +11,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./app"),
     },
+    dedupe: ["react", "react-dom"],
   },
   server: {
     watch: {

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import { Search, Clock, Calendar, UserPlus, FileText, TrendingUp, Users, Settings } from "lucide-react";
+import { Search, Clock, Calendar, UserPlus, FileText, TrendingUp, Users, Settings, Megaphone } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { useKeyboardShortcuts } from "~/hooks/use-keyboard-shortcuts";
 
@@ -127,6 +127,18 @@ export function QuickActionsMenu({
           onOpenChange(false);
         },
         keywords: ["employees", "directory", "people", "team"],
+      },
+      {
+        id: "share-announcement",
+        label: "Share Announcement",
+        description: "Open company news to draft an update",
+        icon: Megaphone,
+        category: "Communications",
+        handler: () => {
+          navigate("/news");
+          onOpenChange(false);
+        },
+        keywords: ["news", "announcement", "communications"],
       },
       {
         id: "settings",

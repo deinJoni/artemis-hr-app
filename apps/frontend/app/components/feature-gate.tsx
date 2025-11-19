@@ -2,7 +2,13 @@ import * as React from "react";
 
 import { useFeatureFlag } from "~/lib/feature-flags";
 
-export type FeatureSlug = "core_hr" | "time_attendance" | "leave_management" | "recruiting" | "workflows";
+export type FeatureSlug =
+  | "core_hr"
+  | "time_attendance"
+  | "leave_management"
+  | "recruiting"
+  | "workflows"
+  | "company_news";
 
 const FEATURE_METADATA: Record<FeatureSlug, { title: string; description: string }> = {
   core_hr: {
@@ -30,6 +36,11 @@ const FEATURE_METADATA: Record<FeatureSlug, { title: string; description: string
     description:
       "Workflow automation has not been activated for this tenant. Ask a superadmin to enable workflows to continue.",
   },
+  company_news: {
+    title: "Company news is unavailable",
+    description:
+      "Enable the Company News feature to share internal announcements and HR mitteilungen.",
+  },
 };
 
 type FeatureGateProps = {
@@ -45,7 +56,17 @@ export function FeatureGate({
   children,
   defaultEnabled = slug === "recruiting" || slug === "workflows" ? false : true,
 }: FeatureGateProps) {
-  const enabled = useFeatureFlag(slug, defaultEnabled);
+  // Safely get feature flag, falling back to defaultEnabled if context is not available
+  // This handles cases where components are rendered in portals outside the FeatureFlagProvider
+  let enabled = defaultEnabled;
+  try {
+    enabled = useFeatureFlag(slug, defaultEnabled);
+  } catch (error) {
+    // If FeatureFlagProvider context is not available (e.g., in a portal),
+    // use the defaultEnabled value
+    console.warn(`FeatureFlagProvider context not available for ${slug}, using default: ${defaultEnabled}`);
+    enabled = defaultEnabled;
+  }
 
   if (!enabled) {
     if (fallback) {
@@ -64,4 +85,3 @@ export function FeatureGate({
 
   return <>{children}</>;
 }
-

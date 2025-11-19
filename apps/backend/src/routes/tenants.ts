@@ -394,8 +394,8 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
       // Create employee record in step 2
       const employeeName = `${payload.firstName} ${payload.lastName}`
       
-      // Check if employee already exists
-      const existingEmployee = await supabase
+      // Check if employee already exists (use supabaseAdmin to bypass RLS)
+      const existingEmployee = await supabaseAdmin
         .from('employees')
         .select('id')
         .eq('tenant_id', tenantId)
@@ -404,6 +404,7 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
 
       if (existingEmployee.error && existingEmployee.error.code !== 'PGRST116') {
         console.error('Error checking for existing employee:', existingEmployee.error.message)
+        return c.json({ error: 'Failed to check for existing employee', details: existingEmployee.error.message }, 500)
       } else if (!existingEmployee.data) {
         // Create employee record
         const employeeInsert = await supabaseAdmin
@@ -422,17 +423,34 @@ export const registerTenantRoutes = (app: Hono<Env>) => {
 
         if (employeeInsert.error) {
           console.error('Error creating employee record during onboarding:', employeeInsert.error.message)
-          // Don't fail onboarding - employee can be created manually later
+          return c.json({ 
+            error: 'Failed to create employee record during onboarding', 
+            details: employeeInsert.error.message 
+          }, 500)
+        }
+
+        // Verify employee was created
+        if (!employeeInsert.data?.id) {
+          console.error('Employee creation returned no ID')
+          return c.json({ error: 'Employee creation failed: no ID returned' }, 500)
         }
       } else {
         // Update existing employee with job_title if needed
-        await supabaseAdmin
+        const updateResult = await supabaseAdmin
           .from('employees')
           .update({
             job_title: payload.rolePosition,
             name: employeeName,
           })
           .eq('id', existingEmployee.data.id)
+
+        if (updateResult.error) {
+          console.error('Error updating existing employee during onboarding:', updateResult.error.message)
+          return c.json({ 
+            error: 'Failed to update existing employee record', 
+            details: updateResult.error.message 
+          }, 500)
+        }
       }
     } else if (payload.step === 3) {
       updateData.setup_completed = true

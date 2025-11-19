@@ -1,4 +1,4 @@
-import { z } from "zod";
+import type { z } from "zod";
 
 /**
  * Adds a refinement ensuring at least one field is provided. Useful for PATCH payloads.

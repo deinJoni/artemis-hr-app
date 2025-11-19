@@ -11,6 +11,7 @@ import {
 } from "@vibe/shared";
 import { supabase } from "~/lib/supabase";
 import { Button } from "~/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/lib/i18n";
 
@@ -21,6 +22,8 @@ type OnboardingState = {
 
 const TOTAL_STEPS = 3;
 const BOOTSTRAP_CACHE_KEY = "artemis-bootstrap-cache";
+const ONBOARDING_COMPANY_SIZE_PLACEHOLDER_VALUE = "__onboarding_company_size__";
+const ONBOARDING_LANGUAGE_PLACEHOLDER_VALUE = "__onboarding_language__";
 
 const debugOnboarding = (label: string, details?: Record<string, unknown>) => {
   const debugFlag =
@@ -485,37 +488,47 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="space-y-2 text-left">
                     <span className="text-sm font-medium text-foreground">{t("settings.companySize")}</span>
-                    <select
-                      value={formData.companySize}
-                      onChange={(event) =>
-                        setFormData((data) => ({ ...data, companySize: event.target.value }))
+                    <Select
+                      value={formData.companySize || ONBOARDING_COMPANY_SIZE_PLACEHOLDER_VALUE}
+                      onValueChange={(value) =>
+                        setFormData((data) => ({ ...data, companySize: value === ONBOARDING_COMPANY_SIZE_PLACEHOLDER_VALUE ? "" : value }))
                       }
-                      className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      required
                     >
-                      <option value="">{t("onboarding.selectSize")}</option>
-                      <option value="1-10">1-10</option>
-                      <option value="11-25">11-25</option>
-                      <option value="26-100">26-100</option>
-                      <option value="101-500">101-500</option>
-                      <option value="501-1000">501-1000</option>
-                      <option value="> 1000">&gt; 1000</option>
-                    </select>
+                      <SelectTrigger className="h-11 w-full rounded-lg">
+                        <SelectValue placeholder={t("onboarding.selectSize")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ONBOARDING_COMPANY_SIZE_PLACEHOLDER_VALUE}>
+                          {t("onboarding.selectSize")}
+                        </SelectItem>
+                        <SelectItem value="1-10">1-10</SelectItem>
+                        <SelectItem value="11-25">11-25</SelectItem>
+                        <SelectItem value="26-100">26-100</SelectItem>
+                        <SelectItem value="101-500">101-500</SelectItem>
+                        <SelectItem value="501-1000">501-1000</SelectItem>
+                        <SelectItem value="> 1000">&gt; 1000</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </label>
                   <label className="space-y-2 text-left">
                     <span className="text-sm font-medium text-foreground">{t("settings.language")}</span>
-                    <select
-                      value={formData.language}
-                      onChange={(event) =>
-                        setFormData((data) => ({ ...data, language: event.target.value }))
+                    <Select
+                      value={formData.language || ONBOARDING_LANGUAGE_PLACEHOLDER_VALUE}
+                      onValueChange={(value) =>
+                        setFormData((data) => ({ ...data, language: value === ONBOARDING_LANGUAGE_PLACEHOLDER_VALUE ? "" : value }))
                       }
-                      className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      required
                     >
-                      <option value="">{t("onboarding.selectLanguage")}</option>
-                      <option value="German">{t("onboarding.german")}</option>
-                      <option value="English">{t("onboarding.english")}</option>
-                    </select>
+                      <SelectTrigger className="h-11 w-full rounded-lg">
+                        <SelectValue placeholder={t("onboarding.selectLanguage")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ONBOARDING_LANGUAGE_PLACEHOLDER_VALUE}>
+                          {t("onboarding.selectLanguage")}
+                        </SelectItem>
+                        <SelectItem value="German">{t("onboarding.german")}</SelectItem>
+                        <SelectItem value="English">{t("onboarding.english")}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </label>
                 </div>
 
@@ -854,4 +867,3 @@ export default function Onboarding({ loaderData }: Route.ComponentProps) {
     </main>
   );
 }
-

@@ -91,7 +91,12 @@ const FEATURE_ROUTE_MAP: Array<{
   {
     slug: "workflows",
     patterns: [/^\/workflows\b/i, /^\/journeys\b/i],
-    defaultEnabled: false,
+    defaultEnabled: true,
+  },
+  {
+    slug: "company_news",
+    patterns: [/^\/news\b/i],
+    defaultEnabled: true,
   },
 ];
 

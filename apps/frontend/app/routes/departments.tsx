@@ -19,6 +19,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { supabase } from "~/lib/supabase";
 import { cn } from "~/lib/utils";
 import {
@@ -31,11 +32,16 @@ import {
   type Employee,
   type OfficeLocation,
 } from "@vibe/shared";
+import { usePermissions } from "~/lib/permissions";
 
 type DepartmentWithStats = Department & {
   employeeCount: number;
   children?: DepartmentWithStats[];
 };
+
+const NO_PARENT_DEPARTMENT_VALUE = "__no_parent_department__";
+const NO_DEPARTMENT_HEAD_VALUE = "__no_department_head__";
+const NO_DEPARTMENT_OFFICE_VALUE = "__no_department_office__";
 
 type DepartmentState = {
   status: "idle" | "loading" | "ready" | "error";
@@ -92,6 +98,14 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
   const [error, setError] = React.useState<string | null>(null);
   const [employeeOptions, setEmployeeOptions] = React.useState<Array<{ id: string; name: string }>>([]);
   const [officeLocations, setOfficeLocations] = React.useState<OfficeLocation[]>([]);
+  const [tenantId, setTenantId] = React.useState<string | null>(null);
+  const permissionKeys = React.useMemo(() => ["departments.read", "departments.manage"], []);
+  const { permissions: departmentPermissions, loading: departmentPermissionsLoading } = usePermissions(permissionKeys, {
+    tenantId,
+    skip: !tenantId,
+  });
+  const canViewDepartments = departmentPermissions["departments.read"] ?? false;
+  const canManageDepartments = departmentPermissions["departments.manage"] ?? false;
 
   const resolveTenantContext = React.useCallback(async () => {
     const session = (await supabase.auth.getSession()).data.session;
@@ -108,6 +122,11 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
       throw new Error(tenantJson.error || "Unable to resolve tenant");
     }
 
+    setTenantId(prev => {
+      const nextId = tenantJson.id ?? null;
+      if (nextId === null) return prev;
+      return prev === nextId ? prev : nextId;
+    });
     return { token, tenantId: tenantJson.id };
   }, [apiBaseUrl]);
 
@@ -221,6 +240,10 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
   }, [loadReferenceData]);
 
   const handleCreateDepartment = async () => {
+    if (!canManageDepartments) {
+      setError("You do not have permission to manage departments.");
+      return;
+    }
     if (!editForm.name.trim()) {
       setError("Department name is required");
       return;
@@ -304,6 +327,10 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
   };
 
   const handleDeleteDepartment = async (deptId: string) => {
+    if (!canManageDepartments) {
+      setError("You do not have permission to manage departments.");
+      return;
+    }
     if (!confirm("Are you sure you want to delete this department? This action cannot be undone.")) {
       return;
     }
@@ -430,34 +457,36 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
               )}
             </div>
             
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditingDept(dept.id);
-                  setEditForm({
-                    name: dept.name,
-                    description: dept.description || "",
-                    parentId: dept.parent_id || "",
-                    headEmployeeId: dept.head_employee_id || "",
-                    costCenter: dept.cost_center || "",
-                    officeLocationId: dept.office_location_id || "",
-                  });
-                }}
-                className="h-8 w-8 p-0"
-              >
-                <Edit className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleDeleteDepartment(dept.id)}
-                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
+            {canManageDepartments ? (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditingDept(dept.id);
+                    setEditForm({
+                      name: dept.name,
+                      description: dept.description || "",
+                      parentId: dept.parent_id || "",
+                      headEmployeeId: dept.head_employee_id || "",
+                      costCenter: dept.cost_center || "",
+                      officeLocationId: dept.office_location_id || "",
+                    });
+                  }}
+                  className="h-8 w-8 p-0"
+                >
+                  <Edit className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDeleteDepartment(dept.id)}
+                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ) : null}
           </div>
           
           {hasChildren && isExpanded && (
@@ -469,6 +498,27 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
       );
     });
   };
+
+  if (!tenantId || departmentPermissionsLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center py-20 text-sm text-muted-foreground">
+        Loading departments...
+      </div>
+    );
+  }
+
+  if (!canViewDepartments) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-6 py-20 text-center">
+        <div className="max-w-md space-y-3">
+          <h2 className="text-2xl font-semibold text-foreground">Insufficient permissions</h2>
+          <p className="text-sm text-muted-foreground">
+            You do not have access to view departments. Contact your administrator if you need additional access.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (state.status === "error" && state.departments.length === 0) {
     return (
@@ -502,18 +552,27 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
                 <RefreshCw className={cn("mr-2 h-4 w-4", state.status === "loading" && "animate-spin")} />
                 Refresh
               </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                onClick={() => {
-                  setEditingDept("new");
-                  setEditForm({ name: "", description: "", parentId: "", headEmployeeId: "", costCenter: "", officeLocationId: "" });
-                }}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add Department
-              </Button>
+              {canManageDepartments ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    setEditingDept("new");
+                    setEditForm({
+                      name: "",
+                      description: "",
+                      parentId: "",
+                      headEmployeeId: "",
+                      costCenter: "",
+                      officeLocationId: "",
+                    });
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Department
+                </Button>
+              ) : null}
             </div>
           </div>
         </header>
@@ -556,122 +615,159 @@ export default function Departments({ loaderData }: Route.ComponentProps) {
           </Card>
 
           {/* Department Form */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {editingDept === "new" ? "Create Department" : "Edit Department"}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Name</label>
-                  <Input
-                    value={editForm.name}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Department name"
-                  />
-                </div>
-                
-                <div>
-                  <label className="text-sm font-medium">Description</label>
-                  <Input
-                    value={editForm.description}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Optional description"
-                  />
-                </div>
-                
-                <div>
-                  <label className="text-sm font-medium">Parent Department</label>
-                  <select
-                    value={editForm.parentId}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditForm(prev => ({ ...prev, parentId: e.target.value }))}
-                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
-                  >
-                    <option value="">No parent (top-level)</option>
-                    {state.departments
-                      .filter(dept => dept.id !== editingDept)
-                      .map(dept => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="text-sm font-medium">Department Head</label>
-                  <select
-                    value={editForm.headEmployeeId}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                      setEditForm(prev => ({ ...prev, headEmployeeId: e.target.value }))
-                    }
-                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
-                  >
-                    <option value="">No department head</option>
-                    {employeeOptions.map(emp => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+          {canManageDepartments ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>{editingDept === "new" ? "Create Department" : "Edit Department"}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Name</label>
+                    <Input
+                      value={editForm.name}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setEditForm((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                      placeholder="Department name"
+                    />
+                  </div>
 
-                <div>
-                  <label className="text-sm font-medium">Cost Center</label>
-                  <Input
-                    value={editForm.costCenter}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setEditForm(prev => ({ ...prev, costCenter: e.target.value }))
-                    }
-                    placeholder="e.g., OPS-1001"
-                  />
-                </div>
+                  <div>
+                    <label className="text-sm font-medium">Description</label>
+                    <Input
+                      value={editForm.description}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                      }
+                      placeholder="Optional description"
+                    />
+                  </div>
 
-                <div>
-                  <label className="text-sm font-medium">Office Location</label>
-                  <select
-                    value={editForm.officeLocationId}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                      setEditForm(prev => ({ ...prev, officeLocationId: e.target.value }))
-                    }
-                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
-                  >
-                    <option value="">No office location</option>
-                    {officeLocations.map(location => (
-                      <option key={location.id} value={location.id}>
-                        {location.name}
-                        {location.timezone ? ` (${location.timezone})` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <div>
+                    <label className="text-sm font-medium">Parent Department</label>
+                    <Select
+                      value={editForm.parentId || NO_PARENT_DEPARTMENT_VALUE}
+                      onValueChange={(value) =>
+                        setEditForm((prev) => ({ ...prev, parentId: value === NO_PARENT_DEPARTMENT_VALUE ? "" : value }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="No parent (top-level)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_PARENT_DEPARTMENT_VALUE}>No parent (top-level)</SelectItem>
+                        {state.departments
+                          .filter((dept) => dept.id !== editingDept)
+                          .map((dept) => (
+                            <SelectItem key={dept.id} value={dept.id}>
+                              {dept.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Department Head</label>
+                    <Select
+                      value={editForm.headEmployeeId || NO_DEPARTMENT_HEAD_VALUE}
+                      onValueChange={(value) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          headEmployeeId: value === NO_DEPARTMENT_HEAD_VALUE ? "" : value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="No department head" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_DEPARTMENT_HEAD_VALUE}>No department head</SelectItem>
+                        {employeeOptions.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            {emp.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Cost Center</label>
+                    <Input
+                      value={editForm.costCenter}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setEditForm((prev) => ({ ...prev, costCenter: e.target.value }))
+                      }
+                      placeholder="e.g., OPS-1001"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Office Location</label>
+                    <Select
+                      value={editForm.officeLocationId || NO_DEPARTMENT_OFFICE_VALUE}
+                      onValueChange={(value) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          officeLocationId: value === NO_DEPARTMENT_OFFICE_VALUE ? "" : value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="No office location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_DEPARTMENT_OFFICE_VALUE}>No office location</SelectItem>
+                        {officeLocations.map((location) => (
+                          <SelectItem key={location.id} value={location.id}>
+                            {location.name}
+                            {location.timezone ? ` (${location.timezone})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button onClick={handleCreateDepartment} disabled={saving || !editForm.name.trim()} className="flex-1">
+                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {editingDept === "new" ? "Create" : "Update"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setEditingDept(null);
+                        setEditForm({
+                          name: "",
+                          description: "",
+                          parentId: "",
+                          headEmployeeId: "",
+                          costCenter: "",
+                          officeLocationId: "",
+                        });
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-                
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleCreateDepartment}
-                    disabled={saving || !editForm.name.trim()}
-                    className="flex-1"
-                  >
-                    {saving ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : null}
-                    {editingDept === "new" ? "Create" : "Update"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditingDept(null);
-                      setEditForm({ name: "", description: "", parentId: "", headEmployeeId: "", costCenter: "", officeLocationId: "" });
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Department Management</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  You have read-only access to departments. Contact your administrator if you need permission to create or modify
+                  the org structure.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

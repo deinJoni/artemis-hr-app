@@ -1,5 +1,15 @@
 import * as React from "react";
-import { Laptop, GraduationCap, TrendingUp, User, Clock, Check, X, AlertCircle } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  Clock,
+  GraduationCap,
+  Laptop,
+  TrendingUp,
+  User,
+  UserCircle2,
+  X,
+} from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
@@ -32,11 +42,17 @@ const CATEGORY_META = {
     icon: TrendingUp,
     accent: "text-emerald-600",
   },
+  profile_change: {
+    label: "Profile Updates",
+    description: "Self-service contact updates pending manager review",
+    icon: UserCircle2,
+    accent: "text-amber-600",
+  },
 } as const;
 
 type CategoryKey = keyof typeof CATEGORY_META;
 
-const ORDERED_CATEGORIES: CategoryKey[] = ["equipment", "training", "salary_change"];
+const ORDERED_CATEGORIES: CategoryKey[] = ["equipment", "training", "salary_change", "profile_change"];
 
 const formatDate = (value?: string | null) => {
   if (!value) return "—";
@@ -101,11 +117,14 @@ export function CrossFunctionalApprovalsList() {
   }, [apiBaseUrl, session]);
 
   const grouped = React.useMemo(() => {
-    return requests.reduce<Record<CategoryKey, ApprovalRequest[]>>((acc, req) => {
-      acc[req.category as CategoryKey] = acc[req.category as CategoryKey] || [];
-      acc[req.category as CategoryKey].push(req);
-      return acc;
-    }, { equipment: [], training: [], salary_change: [] });
+    return requests.reduce<Record<CategoryKey, ApprovalRequest[]>>(
+      (acc, req) => {
+        acc[req.category as CategoryKey] = acc[req.category as CategoryKey] || [];
+        acc[req.category as CategoryKey].push(req);
+        return acc;
+      },
+      { equipment: [], training: [], salary_change: [], profile_change: [] }
+    );
   }, [requests]);
 
   const resetState = React.useCallback((requestId: string) => {
@@ -265,6 +284,54 @@ export function CrossFunctionalApprovalsList() {
               <dt className="text-muted-foreground">Effective Date</dt>
               <dd>{formatDate(details.effectiveDate)}</dd>
             </div>
+          </dl>
+        );
+      }
+      case "profile_change": {
+        const details = request.details;
+        const updated = details.updatedFields ?? {};
+        const previous = (details.previousFields ?? {}) as Record<string, unknown>;
+        const entries = Object.entries(updated);
+        if (!entries.length) {
+          return null;
+        }
+        const formatValue = (value: unknown) => {
+          if (!value || (typeof value === "string" && !value.length)) return "—";
+          if (typeof value === "object") {
+            const address = value as Record<string, string | undefined>;
+            const parts = ["street", "postal_code", "city", "state", "country"]
+              .map((key) => address[key])
+              .filter(Boolean);
+            return parts.length ? parts.join(", ") : "—";
+          }
+          return String(value);
+        };
+        const labelMap: Record<string, string> = {
+          phone_personal: "Personal Phone",
+          phone_work: "Work Phone",
+          emergency_contact_name: "Emergency Contact Name",
+          emergency_contact_phone: "Emergency Contact Phone",
+          home_address: "Home Address",
+        };
+        return (
+          <dl className="grid gap-4">
+            {entries.map(([key, value]) => (
+              <div key={key} className="rounded-xl border border-border/50 bg-muted/10 p-3">
+                <p className="text-xs uppercase text-muted-foreground">
+                  {labelMap[key] ?? key.replace(/_/g, " ")}
+                </p>
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Requested</p>
+                    <p className="text-sm text-foreground">{formatValue(value)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Current</p>
+                    <p className="text-sm text-muted-foreground">{formatValue(previous[key])}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </dl>
         );
       }

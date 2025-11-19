@@ -4,7 +4,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { User } from '../types'
 
 import {
-  CSVExportRequestSchema,
   CSVImportConfirmSchema,
   CSVImportPreviewSchema,
   CSVImportResultSchema,
@@ -14,6 +13,9 @@ import type { Database } from '@database.types.ts'
 import { AuditLogger, extractRequestInfo } from '../lib/audit-logger'
 import { supabaseAdmin } from '../lib/supabase'
 import type { Env } from '../types'
+import { ensurePermission } from '../lib/permissions'
+
+type EmployeePublicRow = Database['public']['Views']['employees_public']['Row']
 
 export const registerImportRoutes = (app: Hono<Env>) => {
   // CSV Import Preview
@@ -284,31 +286,16 @@ export const registerImportRoutes = (app: Hono<Env>) => {
     const tenantId = c.req.param('tenantId')
 
     console.log('[Export] Tenant ID:', tenantId)
-    const user = c.get('user') as User
-    
-    // Check if user is owner first (owners have all permissions)
-    const membership = await supabase
-      .from('memberships')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle()
 
-    const isOwner = membership.data?.role === 'owner'
-    
-    if (!isOwner) {
-      const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.read', tenant: tenantId })
-      if (canRead.error) {
-        console.error('[Export] Permission check error:', canRead.error)
-        return c.json({ error: canRead.error.message }, 400)
-      }
-      if (!canRead.data) {
-        console.error('[Export] Permission denied')
-        return c.json({ error: 'Forbidden' }, 403)
-      }
+    try {
+      await ensurePermission(supabase, tenantId, 'employees.export')
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Forbidden'
+      console.error('[Export] Permission denied:', message)
+      return c.json({ error: message }, message === 'Forbidden' ? 403 : 400)
     }
-    
-    console.log('[Export] Permission granted, fetching employees...')
+
+    console.log('[Export] employees.export permission granted, fetching employees...')
 
     try {
       const url = new URL(c.req.url)
@@ -319,7 +306,7 @@ export const registerImportRoutes = (app: Hono<Env>) => {
 
       // Build query - select all employee fields
       let query = supabase
-        .from('employees')
+        .from('employees_public')
         .select('*')
         .eq('tenant_id', tenantId)
 
@@ -336,8 +323,8 @@ export const registerImportRoutes = (app: Hono<Env>) => {
       console.log('[Export] Fetched', employees?.length || 0, 'employees')
 
       // Fetch department names and manager info separately if needed
-      const departmentIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.department_id).filter((id: string | null): id is string => Boolean(id)))]
-      const managerIds = [...new Set((employees || []).map((emp: Database['public']['Tables']['employees']['Row']) => emp.manager_id).filter((id: string | null): id is string => Boolean(id)))]
+      const departmentIds = [...new Set((employees || []).map((emp: EmployeePublicRow) => emp.department_id).filter((id: string | null): id is string => Boolean(id)))]
+      const managerIds = [...new Set((employees || []).map((emp: EmployeePublicRow) => emp.manager_id).filter((id: string | null): id is string => Boolean(id)))]
       
       const departmentMap = new Map<string, string>()
       const managerMap = new Map<string, { name: string; email: string }>()
@@ -387,7 +374,7 @@ export const registerImportRoutes = (app: Hono<Env>) => {
         headers.push('salary_amount', 'salary_currency', 'salary_frequency')
       }
 
-      const csvRows = employees?.map((emp: Database['public']['Tables']['employees']['Row']) => {
+      const csvRows = employees?.map((emp: EmployeePublicRow) => {
         const manager = emp.manager_id ? managerMap.get(emp.manager_id) : null
         const departmentName = emp.department_id ? departmentMap.get(emp.department_id) : ''
         

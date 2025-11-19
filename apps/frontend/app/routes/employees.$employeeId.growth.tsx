@@ -3,6 +3,7 @@ import type { Route } from "./+types/employees.$employeeId.growth";
 import { useNavigate } from "react-router";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Separator } from "~/components/ui/separator";
 import { supabase } from "~/lib/supabase";
 import type { Goal, CheckInHistoryItem } from "@vibe/shared";
@@ -602,15 +603,19 @@ function GoalModal({ mode, formData, onFieldChange, onClose, onSubmit, error }: 
             </label>
             <label className="flex flex-col gap-1 text-sm text-foreground">
               Status
-              <select
+              <Select
                 value={formData.status}
-                onChange={(event) => onFieldChange("status", event.target.value)}
-                className="rounded-md border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                onValueChange={(value) => onFieldChange("status", value)}
               >
-                <option value="todo">To do</option>
-                <option value="in_progress">In progress</option>
-                <option value="completed">Completed</option>
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todo">To do</SelectItem>
+                  <SelectItem value="in_progress">In progress</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
           </div>
           <label className="flex flex-col gap-1 text-sm text-foreground">

@@ -17,9 +17,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { MoreHorizontal, Edit, Trash2, Clock, X, Calendar, Filter } from "lucide-react";
 import type { TimeEntry, TimeEntryListQuery } from "@vibe/shared";
 import { cn } from "~/lib/utils";
+
+const TIME_ENTRY_STATUS_ALL_VALUE = "__time_entry_status_all__";
+const TIME_ENTRY_TYPE_ALL_VALUE = "__time_entry_type_all__";
 
 type TimeEntriesTableProps = {
   entries: TimeEntry[];
@@ -284,30 +288,44 @@ export function TimeEntriesTable({
           </div>
           <div className="space-y-2">
             <Label htmlFor="status" className="text-xs">Status</Label>
-            <select
-              id="status"
-              value={filters.status || ''}
-              onChange={(e) => onFiltersChange?.({ status: e.target.value as any || undefined })}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            <Select
+              value={filters.status || TIME_ENTRY_STATUS_ALL_VALUE}
+              onValueChange={(value) =>
+                onFiltersChange?.({
+                  status: (value === TIME_ENTRY_STATUS_ALL_VALUE ? undefined : (value as TimeEntryListQuery["status"])),
+                })
+              }
             >
-              <option value="">All Status</option>
-              <option value="approved">Approved</option>
-              <option value="pending">Pending</option>
-              <option value="rejected">Rejected</option>
-            </select>
+              <SelectTrigger id="status" className="h-9 w-40">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TIME_ENTRY_STATUS_ALL_VALUE}>All Status</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="entry-type" className="text-xs">Type</Label>
-            <select
-              id="entry-type"
-              value={filters.entry_type || ''}
-              onChange={(e) => onFiltersChange?.({ entry_type: e.target.value as any || undefined })}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            <Select
+              value={filters.entry_type || TIME_ENTRY_TYPE_ALL_VALUE}
+              onValueChange={(value) =>
+                onFiltersChange?.({
+                  entry_type: value === TIME_ENTRY_TYPE_ALL_VALUE ? undefined : (value as TimeEntryListQuery["entry_type"]),
+                })
+              }
             >
-              <option value="">All Types</option>
-              <option value="clock">Clock In/Out</option>
-              <option value="manual">Manual Entry</option>
-            </select>
+              <SelectTrigger id="entry-type" className="h-9 w-40">
+                <SelectValue placeholder="All Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TIME_ENTRY_TYPE_ALL_VALUE}>All Types</SelectItem>
+                <SelectItem value="clock">Clock In/Out</SelectItem>
+                <SelectItem value="manual">Manual Entry</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="project" className="text-xs">Project</Label>

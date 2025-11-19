@@ -2,6 +2,7 @@ import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { LeaveTypeEnum, type CreateTimeOffRequestInput } from "@vibe/shared";
 
 type RequestDialogProps = {
@@ -99,17 +100,21 @@ export function RequestTimeOffDialog({ apiBaseUrl, session, open, onOpenChange, 
           ) : null}
           <div className="grid gap-2">
             <label className="text-sm font-medium">Leave Type</label>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            <Select
               value={form.leave_type}
-              onChange={(e) => setForm((f) => ({ ...f, leave_type: e.target.value as typeof f.leave_type }))}
+              onValueChange={(value) => setForm((f) => ({ ...f, leave_type: value as typeof f.leave_type }))}
             >
-              {LeaveTypeEnum.options.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LeaveTypeEnum.options.map((opt) => (
+                  <SelectItem key={opt} value={opt}>
+                    {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-2">
             <label className="text-sm font-medium">Start Date</label>
@@ -166,5 +171,4 @@ export function RequestTimeOffDialog({ apiBaseUrl, session, open, onOpenChange, 
     </div>
   );
 }
-
 

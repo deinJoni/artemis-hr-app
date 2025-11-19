@@ -39,5 +39,8 @@
     "supabase": "^2.53.6",
     "turbo": "^2.5.8"
   },
+  "dependencies": {
+    "@faker-js/faker": "^9.9.0"
+  },
   "packageManager": "pnpm@10.15.0"
 }

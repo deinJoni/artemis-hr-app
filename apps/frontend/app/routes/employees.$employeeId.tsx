@@ -9,6 +9,7 @@ import {
   FileText,
   History,
   Loader2,
+  Network,
   RefreshCw,
   Target,
   Trash2,
@@ -21,14 +22,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Separator } from "~/components/ui/separator";
 import { Badge } from "~/components/ui/badge";
 import { Input } from "~/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { Textarea } from "~/components/ui/textarea";
 import { supabase } from "~/lib/supabase";
 import { cn } from "~/lib/utils";
 import {
   EmployeeDetailResponseSchema,
+  EmployeeDocumentListResponseSchema,
+  type DocumentExpiryFilter,
+  type DocumentStatusFilter,
+  type EmployeeDocumentStats,
   type Employee,
   type EmployeeCustomFieldDef,
   type EmployeeDocument,
   type EmployeeManagerOption,
+  EmployeeNoteSchema,
+  type EmployeeNote,
   type Department,
   type EmployeeAuditLog,
 } from "@vibe/shared";
@@ -46,6 +55,7 @@ type ReadyDetail = {
   employee: Employee;
   customFieldDefs: EmployeeCustomFieldDef[];
   documents: EmployeeDocument[];
+  notes: EmployeeNote[];
   managerOptions: EmployeeManagerOption[];
   department: Department | null;
   auditLog: EmployeeAuditLog[] | undefined;
@@ -58,6 +68,31 @@ type ReadyDetail = {
     canViewSensitive: boolean;
     canEditSensitive: boolean;
   };
+};
+
+type DocumentFilters = {
+  category: string;
+  status: DocumentStatusFilter;
+  expiry: DocumentExpiryFilter;
+};
+
+type DocumentState = {
+  items: EmployeeDocument[];
+  stats: EmployeeDocumentStats | null;
+  loading: boolean;
+  error: string | null;
+};
+
+const EMPLOYEE_MANAGER_NONE_VALUE = "__employee_manager_none__";
+const DOCUMENT_CATEGORY_NONE_VALUE = "__document_category_none__";
+const DOCUMENT_CATEGORY_FILTER_ALL_VALUE = "__document_category_filter_all__";
+const DOCUMENT_STATUS_FILTER_ALL_VALUE = "__document_status_filter_all__";
+const DOCUMENT_EXPIRY_FILTER_ALL_VALUE = "__document_expiry_filter_all__";
+
+type NotesState = {
+  items: EmployeeNote[];
+  loading: boolean;
+  error: string | null;
 };
 
 type DetailState = {
@@ -111,6 +146,29 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
     category: "",
     expiryDate: "",
   });
+  const [documentFilters, setDocumentFilters] = React.useState<DocumentFilters>({
+    category: "",
+    status: "all" as DocumentStatusFilter,
+    expiry: "all" as DocumentExpiryFilter,
+  });
+  const [documentsState, setDocumentsState] = React.useState<DocumentState>({
+    items: [],
+    stats: null,
+    loading: false,
+    error: null,
+  });
+  const [notesState, setNotesState] = React.useState<NotesState>({
+    items: [],
+    loading: false,
+    error: null,
+  });
+  const [noteBody, setNoteBody] = React.useState("");
+  const [noteSaving, setNoteSaving] = React.useState(false);
+  const [noteDeletingId, setNoteDeletingId] = React.useState<string | null>(null);
+  const [noteFormError, setNoteFormError] = React.useState<string | null>(null);
+  const resetDocumentFilters = React.useCallback(() => {
+    setDocumentFilters({ category: "", status: "all" as DocumentStatusFilter, expiry: "all" as DocumentExpiryFilter });
+  }, []);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const documentCategories = React.useMemo(
     () => [
@@ -124,6 +182,29 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
       { value: "performance", label: "Performance" },
       { value: "medical", label: "Medical" },
       { value: "other", label: "Other" },
+    ],
+    [],
+  );
+  const documentCategoryFilterOptions = React.useMemo(
+    () => [
+      { value: "", label: "All Categories" },
+      ...documentCategories.filter((option) => option.value),
+    ],
+    [documentCategories],
+  );
+  const documentStatusOptions = React.useMemo<{ value: DocumentStatusFilter; label: string }[]>(
+    () => [
+      { value: "all", label: "All Versions" },
+      { value: "current", label: "Current Only" },
+      { value: "archived", label: "Archived Only" },
+    ],
+    [],
+  );
+  const documentExpiryOptions = React.useMemo<{ value: DocumentExpiryFilter; label: string }[]>(
+    () => [
+      { value: "all", label: "Any Expiry" },
+      { value: "expiring", label: "Expiring Soon (30 days)" },
+      { value: "expired", label: "Expired" },
     ],
     [],
   );
@@ -141,6 +222,101 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
     if (Number.isNaN(parsed.getTime())) return null;
     return format(parsed, pattern);
   }, []);
+  const formatMoney = React.useCallback((value: unknown) => {
+    const numericValue =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number.parseFloat(value)
+          : null;
+    if (numericValue === null || Number.isNaN(numericValue)) {
+      return null;
+    }
+    return numericValue.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  }, []);
+
+  const fetchDocuments = React.useCallback(
+    async (filters: DocumentFilters) => {
+      if (!state.data) return;
+      setDocumentsState((prev) => ({ ...prev, loading: true, error: null }));
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        const token = session?.access_token;
+        if (!token) throw new Error("Missing access token");
+        const params = new URLSearchParams();
+        if (filters.category) {
+          params.set("category", filters.category);
+        }
+        if (filters.status !== "all") {
+          params.set("status", filters.status);
+        }
+        if (filters.expiry !== "all") {
+          params.set("expiry", filters.expiry);
+        }
+        const queryString = params.toString();
+        const url = `${apiBaseUrl}/api/employees/${state.data.tenantId}/${state.data.employee.id}/documents${queryString ? `?${queryString}` : ""}`;
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error((json as { error?: string }).error || "Unable to load documents");
+        }
+        const parsed = EmployeeDocumentListResponseSchema.safeParse(json);
+        if (!parsed.success) {
+          throw new Error("Unexpected response shape");
+        }
+        setDocumentsState({
+          items: parsed.data.documents,
+          stats: parsed.data.stats,
+          loading: false,
+          error: null,
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unable to load documents";
+        setDocumentsState((prev) => ({ ...prev, loading: false, error: message }));
+      }
+    },
+    [apiBaseUrl, state.data],
+  );
+
+  const refreshNotes = React.useCallback(
+    async (silent = false) => {
+      if (!state.data) return;
+      if (!silent) {
+        setNotesState((prev) => ({ ...prev, loading: true, error: null }));
+      }
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        const token = session?.access_token;
+        if (!token) throw new Error("Missing access token");
+        const response = await fetch(
+          `${apiBaseUrl}/api/employees/${state.data.tenantId}/${state.data.employee.id}/notes`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error((json as { error?: string }).error || "Unable to load notes");
+        }
+        const parsed = EmployeeNoteSchema.array().safeParse((json as { notes?: unknown[] }).notes ?? []);
+        if (!parsed.success) {
+          throw new Error("Unexpected response shape");
+        }
+        setNotesState({ items: parsed.data, loading: false, error: null });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unable to load notes";
+        setNotesState((prev) => ({ ...prev, loading: false, error: message }));
+      }
+    },
+    [apiBaseUrl, state.data],
+  );
 
   const loadDetail = React.useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -176,6 +352,7 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
           employee: parsed.data.employee,
           customFieldDefs: parsed.data.customFieldDefs,
           documents: parsed.data.documents,
+          notes: parsed.data.notes ?? [],
           managerOptions: parsed.data.managerOptions,
           department: parsed.data.department,
           auditLog: parsed.data.auditLog,
@@ -200,9 +377,36 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
   }, [loadDetail]);
 
   const detail = state.data;
+
+  React.useEffect(() => {
+    if (!detail) return;
+    setDocumentsState((prev) => ({
+      ...prev,
+      items: detail.documents,
+    }));
+    setNotesState((prev) => ({
+      ...prev,
+      items: detail.notes,
+    }));
+  }, [detail]);
+
+  React.useEffect(() => {
+    if (!detail) return;
+    void fetchDocuments(documentFilters);
+  }, [detail, documentFilters, fetchDocuments]);
+
+  React.useEffect(() => {
+    if (!detail) return;
+    void refreshNotes(true);
+  }, [detail, refreshNotes]);
+  const hasDocumentFilters =
+    documentFilters.category.length > 0 ||
+    documentFilters.status !== "all" ||
+    documentFilters.expiry !== "all";
   const managerLabel =
-    detail?.employee.manager_id &&
-    detail.managerOptions.find((option) => option.id === detail.employee.manager_id)?.label;
+    detail && detail.employee.manager_id
+      ? detail.managerOptions.find((option) => option.id === detail.employee.manager_id)?.label
+      : undefined;
 
   const handleStartEdit = React.useCallback(() => {
     if (!detail) return;
@@ -310,7 +514,7 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
         if (!response.ok) throw new Error((json as any)?.error || "Unable to upload document");
         setStatusMessage("Document uploaded successfully.");
         setDocumentForm({ description: "", category: "", expiryDate: "" });
-        await loadDetail({ silent: true });
+        await fetchDocuments(documentFilters);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unable to upload document";
         setUploadError(message);
@@ -320,7 +524,7 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [detail, apiBaseUrl, loadDetail, documentForm]
+    [detail, apiBaseUrl, fetchDocuments, documentFilters, documentForm]
   );
 
   const handleTriggerUpload = React.useCallback(() => {
@@ -385,7 +589,7 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
           throw new Error(json.error || "Unable to delete document");
         }
         setStatusMessage("Document deleted successfully.");
-        await loadDetail({ silent: true });
+        await fetchDocuments(documentFilters);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unable to delete document";
         setDocumentError(message);
@@ -393,7 +597,82 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
         setDeletingDocId(null);
       }
     },
-    [apiBaseUrl, detail, loadDetail]
+    [apiBaseUrl, detail, fetchDocuments, documentFilters]
+  );
+
+  const handleSubmitNote = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!detail) return;
+      const trimmed = noteBody.trim();
+      if (!trimmed) {
+        setNoteFormError("Please enter a note before saving.");
+        return;
+      }
+      setNoteSaving(true);
+      setNoteFormError(null);
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        const token = session?.access_token;
+        if (!token) throw new Error("Missing access token");
+        const response = await fetch(
+          `${apiBaseUrl}/api/employees/${detail.tenantId}/${detail.employee.id}/notes`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ body: trimmed }),
+          }
+        );
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error((json as { error?: string }).error || "Unable to save note");
+        }
+        setNoteBody("");
+        setStatusMessage("Note added.");
+        await refreshNotes(true);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unable to save note";
+        setNoteFormError(message);
+      } finally {
+        setNoteSaving(false);
+      }
+    },
+    [apiBaseUrl, detail, noteBody, refreshNotes]
+  );
+
+  const handleDeleteNote = React.useCallback(
+    async (noteId: string) => {
+      if (!detail) return;
+      setNoteDeletingId(noteId);
+      setNotesState((prev) => ({ ...prev, error: null }));
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        const token = session?.access_token;
+        if (!token) throw new Error("Missing access token");
+        const response = await fetch(
+          `${apiBaseUrl}/api/employees/${detail.tenantId}/${detail.employee.id}/notes/${noteId}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error((json as { error?: string }).error || "Unable to delete note");
+        }
+        setStatusMessage("Note removed.");
+        await refreshNotes(true);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unable to delete note";
+        setNotesState((prev) => ({ ...prev, error: message }));
+      } finally {
+        setNoteDeletingId(null);
+      }
+    },
+    [apiBaseUrl, detail, refreshNotes]
   );
 
   const handleRefresh = React.useCallback(() => {
@@ -445,6 +724,15 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
               >
                 <FileText className="mr-2 h-4 w-4" />
                 Growth &amp; Goals
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/org-structure")}
+              >
+                <Network className="mr-2 h-4 w-4" />
+                View in Org Chart
               </Button>
             </div>
           </div>
@@ -635,6 +923,100 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                       )}
                     </div>
                   </div>
+
+                  <Separator />
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Compensation</p>
+                        <p className="text-xs text-muted-foreground">
+                          Salary information is only visible to authorized roles.
+                        </p>
+                      </div>
+                    </div>
+                    {detail.permissions.canViewCompensation ? (
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="rounded-xl border border-border/50 bg-background/60 p-3">
+                          <p className="text-xs uppercase text-muted-foreground">Salary Amount</p>
+                          <p className="text-sm text-foreground">
+                        {formatMoney(detail.employee.salary_amount) ?? "—"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-border/50 bg-background/60 p-3">
+                          <p className="text-xs uppercase text-muted-foreground">Currency</p>
+                          <p className="text-sm text-foreground">
+                            {detail.employee.salary_currency ?? "—"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-border/50 bg-background/60 p-3">
+                          <p className="text-xs uppercase text-muted-foreground">Frequency</p>
+                          <p className="text-sm text-foreground">
+                            {detail.employee.salary_frequency
+                              ? detail.employee.salary_frequency.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())
+                              : "—"}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
+                        Access to compensation details is restricted. Please contact an administrator if you believe this is an
+                        error.
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Sensitive Data</p>
+                        <p className="text-xs text-muted-foreground">
+                          Bank details, tax identifiers, and privacy flags.
+                        </p>
+                      </div>
+                    </div>
+                    {detail.permissions.canViewSensitive ? (
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-xl border border-border/50 bg-background/60 p-3">
+                          <p className="text-xs uppercase text-muted-foreground">Bank Account (Encrypted)</p>
+                          <p className="text-sm text-foreground break-all">
+                            {detail.employee.bank_account_encrypted ?? "—"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-border/50 bg-background/60 p-3">
+                          <p className="text-xs uppercase text-muted-foreground">Tax Identifier (Encrypted)</p>
+                          <p className="text-sm text-foreground break-all">
+                            {detail.employee.tax_id_encrypted ?? "—"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-border/50 bg-background/60 p-3 md:col-span-2">
+                          <p className="text-xs uppercase text-muted-foreground">Sensitive Data Flags</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {detail.employee.sensitive_data_flags &&
+                            Object.keys(detail.employee.sensitive_data_flags).length > 0 ? (
+                              Object.entries(detail.employee.sensitive_data_flags).map(([flag, enabled]) => (
+                                <Badge
+                                  key={flag}
+                                  variant={enabled ? "default" : "outline"}
+                                  className="rounded-full px-3 py-1 text-xs"
+                                >
+                                  {flag}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-muted-foreground">No sensitive flags recorded.</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
+                        Sensitive personal information is hidden for this account.
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -676,20 +1058,29 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                         </label>
                         <label className="flex flex-col gap-2 md:col-span-2">
                           <span className="text-xs uppercase text-muted-foreground">Manager</span>
-                          <select
-                            value={editForm.managerId}
-                            onChange={(event) => setEditForm((prev) => ({ ...prev, managerId: event.target.value }))}
-                            className="h-12 rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          <Select
+                            value={editForm.managerId || EMPLOYEE_MANAGER_NONE_VALUE}
+                            onValueChange={(value) =>
+                              setEditForm((prev) => ({
+                                ...prev,
+                                managerId: value === EMPLOYEE_MANAGER_NONE_VALUE ? "" : value,
+                              }))
+                            }
                           >
-                            <option value="">No manager</option>
-                            {detail.managerOptions
-                              .filter((option) => option.id !== detail.employee.id)
-                              .map((option) => (
-                                <option key={option.id} value={option.id}>
-                                  {option.label}
-                                </option>
-                              ))}
-                          </select>
+                            <SelectTrigger className="h-12 w-full rounded-xl px-4">
+                              <SelectValue placeholder="No manager" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={EMPLOYEE_MANAGER_NONE_VALUE}>No manager</SelectItem>
+                              {detail.managerOptions
+                                .filter((option) => option.id !== detail.employee.id)
+                                .map((option) => (
+                                  <SelectItem key={option.id} value={option.id}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
                         </label>
                       </div>
                       <div className="flex items-center gap-3">
@@ -736,20 +1127,30 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                           placeholder="Add a description (optional)"
                           disabled={uploading}
                         />
-                        <select
-                          className="h-11 rounded-xl border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                          value={documentForm.category}
-                          onChange={(event) =>
-                            setDocumentForm((prev) => ({ ...prev, category: event.target.value }))
+                        <Select
+                          value={documentForm.category || DOCUMENT_CATEGORY_NONE_VALUE}
+                          onValueChange={(value) =>
+                            setDocumentForm((prev) => ({
+                              ...prev,
+                              category: value === DOCUMENT_CATEGORY_NONE_VALUE ? "" : value,
+                            }))
                           }
                           disabled={uploading}
                         >
-                          {documentCategories.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger className="h-11 w-full rounded-xl px-3">
+                            <SelectValue placeholder="Choose category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {documentCategories.map((option) => {
+                              const optionValue = option.value || DOCUMENT_CATEGORY_NONE_VALUE;
+                              return (
+                                <SelectItem key={optionValue} value={optionValue}>
+                                  {option.label}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
                         <Input
                           type="date"
                           value={documentForm.expiryDate}
@@ -801,15 +1202,157 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                     </div>
                   ) : null}
 
+                  <div className="space-y-4 rounded-2xl border border-border/60 bg-background/50 p-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <label className="flex flex-col gap-2">
+                        <span className="text-xs uppercase text-muted-foreground">Category Filter</span>
+                        <Select
+                          value={documentFilters.category || DOCUMENT_CATEGORY_FILTER_ALL_VALUE}
+                          onValueChange={(value) =>
+                            setDocumentFilters((prev) => ({
+                              ...prev,
+                              category: value === DOCUMENT_CATEGORY_FILTER_ALL_VALUE ? "" : value,
+                            }))
+                          }
+                          disabled={documentsState.loading}
+                        >
+                          <SelectTrigger className="h-11 w-full rounded-xl px-3">
+                            <SelectValue placeholder="All categories" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {documentCategoryFilterOptions.map((option) => {
+                              const optionValue = option.value || DOCUMENT_CATEGORY_FILTER_ALL_VALUE;
+                              return (
+                                <SelectItem key={optionValue} value={optionValue}>
+                                  {option.label}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </label>
+                      <label className="flex flex-col gap-2">
+                        <span className="text-xs uppercase text-muted-foreground">Version State</span>
+                        <Select
+                          value={documentFilters.status}
+                          onValueChange={(value) =>
+                            setDocumentFilters((prev) => ({
+                              ...prev,
+                              status: value as DocumentStatusFilter,
+                            }))
+                          }
+                          disabled={documentsState.loading}
+                        >
+                          <SelectTrigger className="h-11 w-full rounded-xl px-3">
+                            <SelectValue placeholder="All versions" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {documentStatusOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </label>
+                      <label className="flex flex-col gap-2">
+                        <span className="text-xs uppercase text-muted-foreground">Expiry Status</span>
+                        <Select
+                          value={documentFilters.expiry}
+                          onValueChange={(value) =>
+                            setDocumentFilters((prev) => ({
+                              ...prev,
+                              expiry: value as DocumentExpiryFilter,
+                            }))
+                          }
+                          disabled={documentsState.loading}
+                        >
+                          <SelectTrigger className="h-11 w-full rounded-xl px-3">
+                            <SelectValue placeholder="Any expiry" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {documentExpiryOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={!hasDocumentFilters && !documentsState.loading}
+                        onClick={resetDocumentFilters}
+                      >
+                        Clear filters
+                      </Button>
+                      {documentsState.loading ? (
+                        <span className="inline-flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Updating view…
+                        </span>
+                      ) : null}
+                      {!documentsState.loading && !hasDocumentFilters ? (
+                        <span>Showing all documents</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {documentsState.error ? (
+                    <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                      {documentsState.error}
+                    </div>
+                  ) : null}
+
                   {documentError ? (
                     <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                       {documentError}
                     </div>
                   ) : null}
 
-                  {detail.documents.length > 0 ? (
+                  {documentsState.stats ? (
+                    <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+                      {[
+                        { label: "Total Files", value: documentsState.stats.total },
+                        { label: "Current Versions", value: documentsState.stats.current },
+                        { label: "Archived", value: documentsState.stats.archived },
+                        { label: "Expiring Soon", value: documentsState.stats.expiringSoon },
+                        { label: "Expired", value: documentsState.stats.expired },
+                      ].map((stat) => (
+                        <div
+                          key={stat.label}
+                          className="rounded-2xl border border-border/60 bg-card/70 p-3 text-center shadow-sm"
+                        >
+                          <p className="text-xs uppercase text-muted-foreground">{stat.label}</p>
+                          <p className="text-2xl font-semibold text-foreground">{stat.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {documentsState.stats && Object.keys(documentsState.stats.categories).length > 0 ? (
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {Object.entries(documentsState.stats.categories).map(([category, count]) => (
+                        <span
+                          key={category}
+                          className="rounded-full border border-border/50 bg-muted/40 px-3 py-1 text-foreground"
+                        >
+                          {(categoryLabelMap[category] ?? category).replace(/_/g, " ").replace(/\b\w/g, (letter) =>
+                            letter.toUpperCase()
+                          )}
+                          : {count}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {documentsState.items.length > 0 ? (
                     <div className="space-y-4">
-                      {detail.documents.map((doc) => {
+                      {documentsState.items.map((doc) => {
                         const uploadedAt = formatDate(doc.uploaded_at, "PPP p");
                         const expiryAt = formatDate(doc.expiry_date ?? undefined, "PPP");
                         const categoryLabel =
@@ -888,12 +1431,108 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 py-8 text-center text-sm text-muted-foreground">
-                      No documents uploaded yet.
-                      {detail.permissions.canManageDocuments ? (
+                      {hasDocumentFilters ? "No documents match the selected filters." : "No documents uploaded yet."}
+                      {detail.permissions.canManageDocuments && !hasDocumentFilters ? (
                         <span className="mt-2 block text-xs text-muted-foreground/80">
                           Use the upload controls above to add contracts, certifications, or other files.
                         </span>
                       ) : null}
+                      {hasDocumentFilters ? (
+                        <span className="mt-2 block text-xs text-muted-foreground/80">
+                          Try adjusting your filters or{" "}
+                          <button type="button" className="underline" onClick={resetDocumentFilters}>
+                            reset them
+                          </button>
+                          .
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle>HR Notes</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Private annotations for HR and managers. Not visible to employees.
+                    </p>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void refreshNotes()} disabled={notesState.loading}>
+                    {notesState.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    Refresh
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {detail.permissions.canManageDocuments ? (
+                    <form onSubmit={handleSubmitNote} className="space-y-3 rounded-2xl border border-border/60 bg-muted/15 p-4">
+                      <Textarea
+                        value={noteBody}
+                        onChange={(event) => {
+                          setNoteBody(event.target.value);
+                          if (noteFormError) setNoteFormError(null);
+                        }}
+                        placeholder="Add a confidential HR note..."
+                        disabled={noteSaving}
+                        className="min-h-[100px] resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                      {noteFormError ? (
+                        <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                          {noteFormError}
+                        </div>
+                      ) : null}
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Notes are timestamped with your user account.</p>
+                        <Button type="submit" disabled={noteSaving || noteBody.trim().length === 0}>
+                          {noteSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                          Save Note
+                        </Button>
+                      </div>
+                    </form>
+                  ) : null}
+
+                  {notesState.error ? (
+                    <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                      {notesState.error}
+                    </div>
+                  ) : null}
+
+                  {notesState.items.length > 0 ? (
+                    <div className="space-y-3">
+                      {notesState.items.map((note) => {
+                        const createdAt = format(new Date(note.created_at), "PPP p");
+                        const updatedAt = note.updated_at && note.updated_at !== note.created_at ? format(new Date(note.updated_at), "PPP p") : null;
+                        const deleting = noteDeletingId === note.id;
+                        return (
+                          <div
+                            key={note.id}
+                            className="space-y-3 rounded-2xl border border-border/60 bg-card/80 p-4 shadow-sm"
+                          >
+                            <p className="text-sm leading-relaxed text-foreground whitespace-pre-line">{note.body}</p>
+                            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                              <span>Added {createdAt}</span>
+                              {updatedAt ? <span>• Updated {updatedAt}</span> : null}
+                              {detail.permissions.canManageDocuments ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="ml-auto rounded-xl text-destructive hover:text-destructive"
+                                  onClick={() => handleDeleteNote(note.id)}
+                                  disabled={deleting}
+                                >
+                                  {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                                  Delete
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 py-8 text-center text-sm text-muted-foreground">
+                      No HR notes yet. {detail.permissions.canManageDocuments ? "Use the form above to capture context for this employee." : "Notes require HR permissions."}
                     </div>
                   )}
                 </CardContent>

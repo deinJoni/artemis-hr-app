@@ -10,6 +10,7 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Clock,
   GitBranch,
   History,
@@ -17,11 +18,14 @@ import {
   LifeBuoy,
   LogOut,
   MapPin,
+  Megaphone,
   MessageCircle,
+  Network,
   Search,
   Settings,
   ShieldCheck,
   TrendingUp,
+  User,
   UserCircle2,
   Users,
 } from "lucide-react";
@@ -47,6 +51,7 @@ import { useKeyboardShortcuts } from "~/hooks/use-keyboard-shortcuts";
 import { useTranslation } from "~/lib/i18n";
 import { useFeatureFlag } from "~/lib/feature-flags";
 import type { FeatureSlug } from "~/components/feature-gate";
+import { usePermissions } from "~/lib/permissions";
 
 type PermissionRequirement = "calendar" | "team";
 
@@ -61,6 +66,7 @@ type NavItemConfig = {
   keywords?: string[];
   feature?: FeatureSlug;
   superadminOnly?: boolean;
+  permissionKey?: string;
   children?: NavItemConfig[];
 };
 
@@ -91,11 +97,25 @@ const FEATURE_NAV: FeatureNavGroup[] = [
         keywords: ["home", "main"],
       },
       {
+        key: "myProfile",
+        labelKey: "sidebar.myProfile",
+        to: "/profile",
+        icon: User,
+        keywords: ["profile", "self-service", "contact"],
+      },
+      {
         key: "chat",
         labelKey: "sidebar.chat",
         to: "/chat",
         icon: MessageCircle,
         keywords: ["assistant", "ai", "support", "chat"],
+      },
+      {
+        key: "tasks",
+        labelKey: "sidebar.tasks",
+        to: "/tasks",
+        icon: ClipboardList,
+        keywords: ["checklist", "todo", "tasks"],
       },
     ],
   },
@@ -109,6 +129,7 @@ const FEATURE_NAV: FeatureNavGroup[] = [
         labelKey: "sidebar.employees",
         to: "/employees",
         icon: Users,
+        permissionKey: "employees.read",
         keywords: ["staff", "workers"],
       },
       {
@@ -116,6 +137,7 @@ const FEATURE_NAV: FeatureNavGroup[] = [
         labelKey: "sidebar.members",
         to: "/members",
         icon: Users,
+        permissionKey: "members.manage",
         keywords: ["directory", "people"],
       },
       {
@@ -146,6 +168,7 @@ const FEATURE_NAV: FeatureNavGroup[] = [
         labelKey: "sidebar.departments",
         to: "/departments",
         icon: Building2,
+        permissionKey: "departments.read",
         keywords: ["org", "structure"],
       },
       {
@@ -153,6 +176,7 @@ const FEATURE_NAV: FeatureNavGroup[] = [
         labelKey: "sidebar.teams",
         to: "/teams",
         icon: Users,
+        permissionKey: "teams.read",
         keywords: ["groups", "organization"],
       },
       {
@@ -160,7 +184,16 @@ const FEATURE_NAV: FeatureNavGroup[] = [
         labelKey: "sidebar.officeLocations",
         to: "/office-locations",
         icon: MapPin,
+        permissionKey: "office_locations.read",
         keywords: ["location", "office"],
+      },
+      {
+        key: "orgStructure",
+        labelKey: "sidebar.orgStructure",
+        to: "/org-structure",
+        icon: Network,
+        permissionKey: "employees.read",
+        keywords: ["org", "chart", "hierarchy", "structure"],
       },
     ],
   },
@@ -256,6 +289,21 @@ const FEATURE_NAV: FeatureNavGroup[] = [
     ],
   },
   {
+    id: "communications",
+    labelKey: "sidebar.groupCommunications",
+    feature: "company_news",
+    items: [
+      {
+        key: "companyNews",
+        labelKey: "sidebar.companyNews",
+        to: "/news",
+        icon: Megaphone,
+        permissionKey: "communications.news.read",
+        keywords: ["news", "announcements", "communications"],
+      },
+    ],
+  },
+  {
     id: "recruiting",
     labelKey: "sidebar.groupRecruiting",
     feature: "recruiting",
@@ -344,6 +392,26 @@ export function AppSidebar({
   const leaveEnabled = useFeatureFlag("leave_management", true);
   const recruitingEnabled = useFeatureFlag("recruiting", false);
   const workflowsEnabled = useFeatureFlag("workflows", false);
+  const communicationsEnabled = useFeatureFlag("company_news", true);
+  const navPermissionKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    const collect = (items: NavItemConfig[]) => {
+      items.forEach((item) => {
+        if (item.permissionKey) {
+          keys.add(item.permissionKey);
+        }
+        if (item.children) {
+          collect(item.children);
+        }
+      });
+    };
+    FEATURE_NAV.forEach((group) => collect(group.items));
+    return Array.from(keys);
+  }, []);
+  const { permissions: navPermissions, loading: navPermissionsLoading } = usePermissions(navPermissionKeys, {
+    tenantId: tenant?.id ?? null,
+    skip: !tenant?.id || navPermissionKeys.length === 0,
+  });
 
   const isFeatureEnabled = React.useCallback(
     (slug?: FeatureSlug) => {
@@ -359,11 +427,13 @@ export function AppSidebar({
           return recruitingEnabled;
         case "workflows":
           return workflowsEnabled;
+        case "company_news":
+          return communicationsEnabled;
         default:
           return true;
       }
     },
-    [coreHrEnabled, timeEnabled, leaveEnabled, recruitingEnabled, workflowsEnabled]
+    [coreHrEnabled, timeEnabled, leaveEnabled, recruitingEnabled, workflowsEnabled, communicationsEnabled]
   );
 
   type ResolvedNavItem = Omit<NavItemConfig, "children"> & {
@@ -397,6 +467,12 @@ export function AppSidebar({
     (item: ResolvedNavItem): ResolvedNavItem | null => {
       if (item.superadminOnly && !isSuperadmin) return null;
       if (item.feature && !isFeatureEnabled(item.feature)) return null;
+      if (
+        item.permissionKey &&
+        (!tenant?.id || navPermissionsLoading || !(navPermissions[item.permissionKey] ?? false))
+      ) {
+        return null;
+      }
       if (item.requires === "calendar" && !canViewCalendar) return null;
       if (item.requires === "team" && !canManageTeam) return null;
 

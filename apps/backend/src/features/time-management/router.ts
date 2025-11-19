@@ -1863,12 +1863,18 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
       return c.json({ error: message }, 400)
     }
 
-    const { data: leaveTypes, error } = await supabase
+    const includeInactive = c.req.query('include_inactive') === 'true'
+
+    let queryBuilder = supabase
       .from('leave_types')
       .select('*')
       .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .order('name')
+
+    if (!includeInactive) {
+      queryBuilder = queryBuilder.eq('is_active', true)
+    }
+
+    const { data: leaveTypes, error } = await queryBuilder.order('name')
 
     if (error) return c.json({ error: error.message }, 400)
 
@@ -1953,6 +1959,30 @@ export const registerTimeManagementRoutes = (app: Hono<Env>) => {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
       return c.json({ error: message }, 400)
+    }
+
+    const { data: balanceUsage, error: balanceError } = await supabase
+      .from('leave_balances')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('leave_type_id', id)
+      .limit(1)
+
+    if (balanceError) return c.json({ error: balanceError.message }, 400)
+    if (balanceUsage && balanceUsage.length > 0) {
+      return c.json({ error: 'Cannot delete leave type that is in use' }, 400)
+    }
+
+    const { data: requestUsage, error: requestError } = await supabase
+      .from('time_off_requests')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('leave_type_id', id)
+      .limit(1)
+
+    if (requestError) return c.json({ error: requestError.message }, 400)
+    if (requestUsage && requestUsage.length > 0) {
+      return c.json({ error: 'Cannot delete leave type that is in use' }, 400)
     }
 
     const { error } = await supabase

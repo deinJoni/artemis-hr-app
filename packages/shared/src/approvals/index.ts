@@ -1,9 +1,12 @@
 import { z } from "zod";
 
+import { SelfServiceProfileFieldsSchema } from "../self-service/profile";
+
 export const ApprovalCategoryEnum = z.enum([
   "equipment",
   "training",
   "salary_change",
+  "profile_change",
 ]);
 export type ApprovalCategory = z.infer<typeof ApprovalCategoryEnum>;
 
@@ -115,10 +118,24 @@ const SalaryChangeApprovalRequestSchema = BaseApprovalRequestSchema.extend({
   details: SalaryChangeApprovalDetailsSchema,
 });
 
+export const ProfileChangeApprovalDetailsSchema = BaseDetailSchema.extend({
+  employeeName: z.string(),
+  employeeId: z.string().uuid(),
+  updatedFields: SelfServiceProfileFieldsSchema,
+  previousFields: SelfServiceProfileFieldsSchema.optional(),
+});
+export type ProfileChangeApprovalDetails = z.infer<typeof ProfileChangeApprovalDetailsSchema>;
+
+const ProfileChangeApprovalRequestSchema = BaseApprovalRequestSchema.extend({
+  category: z.literal("profile_change"),
+  details: ProfileChangeApprovalDetailsSchema,
+});
+
 export const ApprovalRequestSchema = z.discriminatedUnion("category", [
   EquipmentApprovalRequestSchema,
   TrainingApprovalRequestSchema,
   SalaryChangeApprovalRequestSchema,
+  ProfileChangeApprovalRequestSchema,
 ]);
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
 
@@ -148,6 +165,10 @@ export const ApprovalRequestInputSchema = z.discriminatedUnion("category", [
     category: z.literal("salary_change"),
     details: SalaryChangeApprovalDetailsSchema,
   }),
+  BaseRequestInputSchema.extend({
+    category: z.literal("profile_change"),
+    details: ProfileChangeApprovalDetailsSchema,
+  }),
 ]);
 export type ApprovalRequestInput = z.infer<typeof ApprovalRequestInputSchema>;
 
@@ -166,4 +187,3 @@ export const ApprovalDecisionInputSchema = z
     }
   });
 export type ApprovalDecisionInput = z.infer<typeof ApprovalDecisionInputSchema>;
-

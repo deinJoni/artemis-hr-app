@@ -47,6 +47,13 @@ export class WorkflowEngine {
   async handleTrigger(event: TriggerEvent): Promise<void> {
     const { type, tenantId, employeeId, payload = {} } = event
 
+    console.log('[WORKFLOW-TRIGGER] Handling trigger event:', {
+      type,
+      tenantId,
+      employeeId,
+      payloadKeys: Object.keys(payload),
+    })
+
     // Find published workflows that match this trigger
     const { data: workflows, error } = await this.supabase
       .from('workflows')
@@ -54,7 +61,7 @@ export class WorkflowEngine {
         id,
         kind,
         active_version_id,
-        workflow_versions!inner (
+        workflow_versions!workflows_active_version_fk!inner (
           id,
           definition
         )
@@ -64,13 +71,19 @@ export class WorkflowEngine {
       .not('active_version_id', 'is', null)
 
     if (error) {
-      console.error('Error fetching workflows for trigger:', error)
+      console.error('[WORKFLOW-TRIGGER] Error fetching workflows for trigger:', error)
       return
     }
 
     if (!workflows || workflows.length === 0) {
+      console.log('[WORKFLOW-TRIGGER] No published workflows found for tenant:', tenantId)
       return
     }
+
+    console.log('[WORKFLOW-TRIGGER] Found published workflows:', {
+      count: workflows.length,
+      workflowIds: workflows.map(w => w.id),
+    })
 
     // Check each workflow's definition for matching trigger
     for (const workflow of workflows) {
@@ -78,10 +91,16 @@ export class WorkflowEngine {
         ? workflow.workflow_versions[0]
         : null
 
-      if (!version) continue
+      if (!version) {
+        console.log('[WORKFLOW-TRIGGER] Skipping workflow (no version):', workflow.id)
+        continue
+      }
 
       const definition = version.definition as WorkflowDefinition
-      if (!definition?.nodes) continue
+      if (!definition?.nodes) {
+        console.log('[WORKFLOW-TRIGGER] Skipping workflow (no nodes):', workflow.id)
+        continue
+      }
 
       // Find trigger nodes matching this event type
       const triggerNodes = definition.nodes.filter(
@@ -90,7 +109,21 @@ export class WorkflowEngine {
           (node.config as { event?: string })?.event === type,
       )
 
-      if (triggerNodes.length === 0) continue
+      if (triggerNodes.length === 0) {
+        console.log('[WORKFLOW-TRIGGER] Skipping workflow (no matching trigger):', {
+          workflowId: workflow.id,
+          eventType: type,
+          triggerNodesInDefinition: definition.nodes.filter(n => n.type === 'trigger').map(n => (n.config as { event?: string })?.event),
+        })
+        continue
+      }
+
+      console.log('[WORKFLOW-TRIGGER] Matching workflow found, instantiating run:', {
+        workflowId: workflow.id,
+        versionId: version.id,
+        triggerNodes: triggerNodes.length,
+        employeeId,
+      })
 
       // Check if workflow should run for this employee
       // For now, we'll run all matching workflows
@@ -121,6 +154,14 @@ export class WorkflowEngine {
   }): Promise<string> {
     const { workflowId, versionId, tenantId, employeeId, triggerSource, context = {} } = params
 
+    console.log('[WORKFLOW-RUN] Instantiating workflow run:', {
+      workflowId,
+      versionId,
+      tenantId,
+      employeeId,
+      triggerSource,
+    })
+
     // Create workflow run
     const { data: run, error: runError } = await this.supabase
       .from('workflow_runs')
@@ -137,10 +178,12 @@ export class WorkflowEngine {
       .single()
 
     if (runError || !run) {
+      console.error('[WORKFLOW-RUN] Failed to create workflow run:', runError)
       throw new Error(`Failed to create workflow run: ${runError?.message}`)
     }
 
     const runId = run.id
+    console.log('[WORKFLOW-RUN] Workflow run created:', { runId, workflowId, employeeId })
 
     // Get workflow definition
     const { data: version, error: versionError } = await this.supabase
@@ -150,10 +193,16 @@ export class WorkflowEngine {
       .single()
 
     if (versionError || !version) {
+      console.error('[WORKFLOW-RUN] Failed to fetch workflow version:', versionError)
       throw new Error(`Failed to fetch workflow version: ${versionError?.message}`)
     }
 
     const definition = version.definition as WorkflowDefinition
+    console.log('[WORKFLOW-RUN] Workflow definition loaded:', {
+      runId,
+      nodeCount: definition.nodes?.length || 0,
+      nodeTypes: definition.nodes?.map(n => n.type) || [],
+    })
 
     // Create workflow_nodes from definition if they don't exist
     // For MVP, we'll create them on-the-fly for this run
@@ -219,9 +268,20 @@ export class WorkflowEngine {
 
     // Process initial steps (trigger nodes)
     const triggerNodes = definition.nodes?.filter((node) => node.type === 'trigger') || []
+    console.log('[WORKFLOW-RUN] Processing trigger nodes:', {
+      runId,
+      triggerNodeCount: triggerNodes.length,
+      triggerNodeIds: triggerNodes.map(n => n.id),
+    })
+
     for (const triggerNode of triggerNodes) {
       const workflowNodeId = nodeIdMap.get(triggerNode.id)
       if (workflowNodeId) {
+        console.log('[WORKFLOW-RUN] Processing trigger node:', {
+          runId,
+          triggerNodeId: triggerNode.id,
+          workflowNodeId,
+        })
         await this.processStep({
           runId,
           nodeId: workflowNodeId, // Use workflow_nodes.id
@@ -234,6 +294,7 @@ export class WorkflowEngine {
       }
     }
 
+    console.log('[WORKFLOW-RUN] Workflow run instantiated and processing started:', { runId })
     return runId
   }
 
@@ -242,6 +303,13 @@ export class WorkflowEngine {
    */
   async processStep(ctx: StepExecutionContext): Promise<void> {
     const { runId, nodeId, tenantId, employeeId, config, context } = ctx
+
+    console.log('[WORKFLOW-STEP] Processing step:', {
+      runId,
+      nodeId,
+      employeeId,
+      configKeys: Object.keys(config || {}),
+    })
 
     // Get node definition from workflow definition
     const { data: run } = await this.supabase
@@ -276,14 +344,24 @@ export class WorkflowEngine {
       .single()
 
     if (nodeError || !workflowNode) {
+      console.error('[WORKFLOW-STEP] Workflow node not found:', { nodeId, error: nodeError })
       throw new Error(`Workflow node not found: ${nodeId}`)
     }
 
     // Find corresponding definition node
     const node = definition.nodes?.find((n) => n.id === workflowNode.node_key)
     if (!node) {
+      console.error('[WORKFLOW-STEP] Definition node not found:', { nodeId, nodeKey: workflowNode.node_key })
       throw new Error(`Definition node not found for workflow node: ${nodeId}`)
     }
+
+    console.log('[WORKFLOW-STEP] Node details:', {
+      runId,
+      nodeId,
+      nodeType: node.type,
+      nodeLabel: node.label,
+      nodeConfig: node.config,
+    })
 
     // Update step status to in_progress
     // Note: We'll need to find the step by matching node_id from workflow_nodes
@@ -294,27 +372,36 @@ export class WorkflowEngine {
       switch (node.type) {
         case 'trigger':
           // Trigger nodes are already processed, mark as completed
+          console.log('[WORKFLOW-STEP] Completing trigger node:', { runId, nodeId })
           await this.completeStep(runId, nodeId, {})
           break
 
         case 'action':
+          console.log('[WORKFLOW-STEP] Executing action node:', { runId, nodeId, actionType: (node.config as Record<string, unknown>)?.type })
           await this.executeAction(ctx, node)
           break
 
         case 'delay':
+          console.log('[WORKFLOW-STEP] Executing delay node:', { runId, nodeId })
           await this.executeDelay(ctx, node)
           break
 
         case 'logic':
           // Logic nodes (if/then, parallel) - for MVP, we'll skip complex logic
+          console.log('[WORKFLOW-STEP] Completing logic node:', { runId, nodeId })
           await this.completeStep(runId, nodeId, {})
           break
 
         default:
-          console.warn(`Unknown node type: ${node.type}`)
+          console.warn('[WORKFLOW-STEP] Unknown node type:', { runId, nodeId, nodeType: node.type })
           await this.completeStep(runId, nodeId, {})
       }
     } catch (error) {
+      console.error('[WORKFLOW-STEP] Step processing failed:', {
+        runId,
+        nodeId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
       await this.failStep(runId, nodeId, error instanceof Error ? error.message : 'Unknown error')
       throw error
     }
@@ -335,6 +422,8 @@ export class WorkflowEngine {
       await this.executeAssignTask(ctx, config)
     } else if (actionType.includes('document') || config?.documents) {
       await this.executeCreateDocument(ctx, config)
+    } else if (config?.form || config?.form_schema) {
+      await this.executeFormTask(ctx, config)
     } else {
       // Default: mark as completed
       await this.completeStep(ctx.runId, node.id, {})
@@ -363,7 +452,14 @@ export class WorkflowEngine {
    * Execute assign task action
    */
   async executeAssignTask(ctx: StepExecutionContext, config: Record<string, unknown>): Promise<void> {
-    const { runId, tenantId, employeeId, nodeId } = ctx
+    const { runId, employeeId, nodeId } = ctx
+
+    console.log('[WORKFLOW-TASK] Executing assign task action:', {
+      runId,
+      employeeId,
+      nodeId,
+      config,
+    })
 
     // Create task entries as workflow_run_steps
     // We need to find the workflow_node_id for this node
@@ -371,6 +467,13 @@ export class WorkflowEngine {
 
     const tasks = (config.tasks as string[]) || []
     const assignee = config.assigned_to || { type: 'employee', id: employeeId }
+
+    console.log('[WORKFLOW-TASK] Creating tasks:', {
+      runId,
+      taskCount: tasks.length,
+      tasks,
+      assignee,
+    })
 
     for (const taskTitle of tasks) {
       // Create a step record for this task
@@ -391,6 +494,11 @@ export class WorkflowEngine {
         .maybeSingle()
 
       if (existingStep) {
+        console.log('[WORKFLOW-TASK] Updating existing task step:', {
+          runId,
+          stepId: existingStep.id,
+          taskTitle,
+        })
         await this.supabase
           .from('workflow_run_steps')
           .update({
@@ -398,10 +506,17 @@ export class WorkflowEngine {
             assigned_to: assignee as Json,
             due_at: this.calculateDueDate(config),
             payload: stepPayload as unknown as Json,
+            task_type: 'general',
           })
           .eq('id', existingStep.id)
       } else {
-        await this.supabase
+        console.log('[WORKFLOW-TASK] Creating new task step:', {
+          runId,
+          nodeId,
+          taskTitle,
+          taskType: 'general',
+        })
+        const { data: newStep, error: stepError } = await this.supabase
           .from('workflow_run_steps')
           .insert({
             run_id: runId,
@@ -410,9 +525,31 @@ export class WorkflowEngine {
             assigned_to: assignee as Json,
             due_at: this.calculateDueDate(config),
             payload: stepPayload as unknown as Json,
+            task_type: 'general',
           })
+          .select('id')
+          .single()
+
+        if (stepError) {
+          console.error('[WORKFLOW-TASK] Failed to create task step:', {
+            runId,
+            taskTitle,
+            error: stepError,
+          })
+        } else {
+          console.log('[WORKFLOW-TASK] Task step created successfully:', {
+            runId,
+            stepId: newStep?.id,
+            taskTitle,
+          })
+        }
       }
     }
+
+    console.log('[WORKFLOW-TASK] Completed assign task action:', {
+      runId,
+      tasksCreated: tasks.length,
+    })
 
     await this.completeStep(runId, nodeId, {
       tasksCreated: tasks.length,
@@ -425,14 +562,37 @@ export class WorkflowEngine {
   async executeCreateDocument(ctx: StepExecutionContext, config: Record<string, unknown>): Promise<void> {
     const { runId, tenantId, employeeId, nodeId } = ctx
 
+    console.log('[WORKFLOW-DOCUMENT] Executing create document action:', {
+      runId,
+      tenantId,
+      employeeId,
+      nodeId,
+      config,
+    })
+
     // TODO: Integrate with document service
     // For MVP, we'll create document requests as workflow steps
     const documents = (config.documents as string[]) || []
+    const baseTitle = typeof config?.title === 'string' ? (config.title as string) : null
+    const baseDescription = typeof config?.description === 'string' ? (config.description as string) : null
+    const baseInstructions = typeof config?.instructions === 'string' ? (config.instructions as string) : null
+    const baseCategory = typeof config?.category === 'string' ? (config.category as string) : null
+
+    console.log('[WORKFLOW-DOCUMENT] Creating document tasks:', {
+      runId,
+      documentCount: documents.length,
+      documents,
+    })
 
     for (const docType of documents) {
       // Create document request step
       const stepPayload = {
+        title: baseTitle || `Upload ${docType}`,
+        description: baseDescription || undefined,
+        instructions: baseInstructions || undefined,
+        priority: (config?.priority as string) || 'medium',
         documentType: docType,
+        category: baseCategory || undefined,
         required: true,
       }
 
@@ -445,16 +605,28 @@ export class WorkflowEngine {
         .maybeSingle()
 
       if (existingStep) {
+        console.log('[WORKFLOW-DOCUMENT] Updating existing document step:', {
+          runId,
+          stepId: existingStep.id,
+          docType,
+        })
         await this.supabase
           .from('workflow_run_steps')
           .update({
             status: 'waiting_input',
             assigned_to: { type: 'employee', id: employeeId } as Json,
             payload: stepPayload as Json,
+            task_type: 'document',
           })
           .eq('id', existingStep.id)
       } else {
-        await this.supabase
+        console.log('[WORKFLOW-DOCUMENT] Creating new document step:', {
+          runId,
+          nodeId,
+          docType,
+          taskType: 'document',
+        })
+        const { data: newStep, error: stepError } = await this.supabase
           .from('workflow_run_steps')
           .insert({
             run_id: runId,
@@ -462,12 +634,94 @@ export class WorkflowEngine {
             status: 'waiting_input',
             assigned_to: { type: 'employee', id: employeeId } as Json,
             payload: stepPayload as Json,
+            task_type: 'document',
           })
+          .select('id')
+          .single()
+
+        if (stepError) {
+          console.error('[WORKFLOW-DOCUMENT] Failed to create document step:', {
+            runId,
+            docType,
+            error: stepError,
+          })
+        } else {
+          console.log('[WORKFLOW-DOCUMENT] Document step created successfully:', {
+            runId,
+            stepId: newStep?.id,
+            docType,
+          })
+        }
       }
     }
 
+    console.log('[WORKFLOW-DOCUMENT] Completed create document action:', {
+      runId,
+      documentsRequested: documents.length,
+    })
+
     await this.completeStep(runId, nodeId, {
       documentsRequested: documents.length,
+    })
+  }
+
+  /**
+   * Execute form task action
+   */
+  async executeFormTask(ctx: StepExecutionContext, config: Record<string, unknown>): Promise<void> {
+    const { runId, nodeId, employeeId } = ctx
+    const assignee = config.assigned_to || { type: 'employee', id: employeeId }
+    const formConfig = (config.form as Record<string, unknown>) || (config as Record<string, unknown>)
+
+    const stepPayload = {
+      title: (formConfig?.title as string) || 'Complete form',
+      description: (formConfig?.description as string) || undefined,
+      instructions: (formConfig?.instructions as string) || undefined,
+      priority: (formConfig?.priority as string) || 'medium',
+      formKey: (formConfig?.key as string) || (formConfig?.formKey as string) || nodeId,
+      schema:
+        (formConfig?.schema as Record<string, unknown>) ||
+        (config?.form_schema as Record<string, unknown>) ||
+        undefined,
+      fields: Array.isArray(formConfig?.fields) ? (formConfig.fields as unknown[]) : undefined,
+      submitLabel: (formConfig?.submit_label as string) || (formConfig?.submitLabel as string) || undefined,
+      defaultValues: (formConfig?.default_values as Record<string, unknown>) || undefined,
+    }
+
+    const { data: existingStep } = await this.supabase
+      .from('workflow_run_steps')
+      .select('id')
+      .eq('run_id', runId)
+      .eq('node_id', nodeId)
+      .maybeSingle()
+
+    if (existingStep) {
+      await this.supabase
+        .from('workflow_run_steps')
+        .update({
+          status: 'waiting_input',
+          assigned_to: assignee as Json,
+          due_at: this.calculateDueDate(config),
+          payload: stepPayload as unknown as Json,
+          task_type: 'form',
+        })
+        .eq('id', existingStep.id)
+    } else {
+      await this.supabase
+        .from('workflow_run_steps')
+        .insert({
+          run_id: runId,
+          node_id: nodeId,
+          status: 'waiting_input',
+          assigned_to: assignee as Json,
+          due_at: this.calculateDueDate(config),
+          payload: stepPayload as unknown as Json,
+          task_type: 'form',
+        })
+    }
+
+    await this.completeStep(runId, nodeId, {
+      formAwaitingInput: true,
     })
   }
 

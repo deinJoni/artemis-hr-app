@@ -1,9 +1,13 @@
 import * as React from "react";
 import type { Route } from "./+types/settings";
 import { Button } from "~/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { supabase } from "~/lib/supabase";
 import { TenantSchema, TenantUpdateInputSchema, type Tenant } from "@vibe/shared";
 import { useEmployeeFieldDefs } from "~/hooks/use-employee-field-defs";
+
+const COMPANY_SIZE_PLACEHOLDER_VALUE = "__company_size_placeholder__";
+const LANGUAGE_PLACEHOLDER_VALUE = "__language_placeholder__";
 
 export async function loader() {
   const baseUrl =
@@ -187,33 +191,45 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           </label>
           <label className="space-y-1 text-left">
             <span className="text-sm font-medium">Company size</span>
-            <select
-              value={form.company_size}
-              onChange={(e) => setForm((f) => ({ ...f, company_size: e.target.value }))}
-              className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            <Select
+              value={form.company_size || COMPANY_SIZE_PLACEHOLDER_VALUE}
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, company_size: value === COMPANY_SIZE_PLACEHOLDER_VALUE ? "" : value }))
+              }
             >
-              <option value="">Select size...</option>
-              <option value="1-10">1-10</option>
-              <option value="11-25">11-25</option>
-              <option value="26-100">26-100</option>
-              <option value="101-500">101-500</option>
-              <option value="501-1000">501-1000</option>
-              <option value="> 1000">&gt; 1000</option>
-            </select>
+              <SelectTrigger className="h-11 w-full">
+                <SelectValue placeholder="Select size..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={COMPANY_SIZE_PLACEHOLDER_VALUE}>Select size...</SelectItem>
+                <SelectItem value="1-10">1-10</SelectItem>
+                <SelectItem value="11-25">11-25</SelectItem>
+                <SelectItem value="26-100">26-100</SelectItem>
+                <SelectItem value="101-500">101-500</SelectItem>
+                <SelectItem value="501-1000">501-1000</SelectItem>
+                <SelectItem value="> 1000">&gt; 1000</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
         </div>
 
         <label className="space-y-1 text-left">
           <span className="text-sm font-medium">Language</span>
-          <select
-            value={form.language}
-            onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}
-            className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          <Select
+            value={form.language || LANGUAGE_PLACEHOLDER_VALUE}
+            onValueChange={(value) =>
+              setForm((f) => ({ ...f, language: value === LANGUAGE_PLACEHOLDER_VALUE ? "" : value }))
+            }
           >
-            <option value="">Select language...</option>
-            <option value="German">German</option>
-            <option value="English">English</option>
-          </select>
+            <SelectTrigger className="h-11 w-full">
+              <SelectValue placeholder="Select language..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={LANGUAGE_PLACEHOLDER_VALUE}>Select language...</SelectItem>
+              <SelectItem value="German">German</SelectItem>
+              <SelectItem value="English">English</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
 
         <div className="flex items-center gap-3">
@@ -253,18 +269,22 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-sm font-medium">Type</span>
-            <select
+            <Select
               value={newField.type}
-              onChange={(e) => setNewField((f) => ({ ...f, type: e.target.value as any }))}
-              className="h-10 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              onValueChange={(value) => setNewField((f) => ({ ...f, type: value as typeof newField.type }))}
               disabled={!tenantId || creating}
             >
-              <option value="text">Text</option>
-              <option value="number">Number</option>
-              <option value="date">Date</option>
-              <option value="select">Select</option>
-              <option value="boolean">Boolean</option>
-            </select>
+              <SelectTrigger className="h-10 w-full">
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="text">Text</SelectItem>
+                <SelectItem value="number">Number</SelectItem>
+                <SelectItem value="date">Date</SelectItem>
+                <SelectItem value="select">Select</SelectItem>
+                <SelectItem value="boolean">Boolean</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
           <label className="flex items-center gap-2">
             <input
@@ -319,4 +339,3 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
     </div>
   );
 }
-

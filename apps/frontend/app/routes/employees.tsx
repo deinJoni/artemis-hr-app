@@ -9,6 +9,7 @@ import { supabase } from "~/lib/supabase";
 import { EmployeeCreateInputSchema, type Employee, type EmployeeCustomFieldDef } from "@vibe/shared";
 import { useEmployeeFieldDefs } from "~/hooks/use-employee-field-defs";
 import { cn } from "~/lib/utils";
+import { usePermissions } from "~/lib/permissions";
 import { Loader2, Plus, RefreshCw, X, Filter, Download, Upload, Trash2, AlertCircle } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "~/components/ui/dialog";
@@ -23,6 +24,13 @@ import { useTranslation } from "~/lib/i18n";
 const employmentTypes = ["Full-time", "Part-time", "Contractor", "Intern", "Seasonal"] as const;
 const salaryFrequencyOptions = ["per year", "per month", "per week", "per hour"] as const;
 const currencyOptions = ["USD", "EUR", "GBP", "CAD", "AUD"] as const;
+const ALL_DEPARTMENT_FILTER_VALUE = "__filter_all_departments__";
+const ALL_LOCATION_FILTER_VALUE = "__filter_all_locations__";
+const ALL_STATUS_FILTER_VALUE = "__filter_all_statuses__";
+const NO_DEPARTMENT_SELECT_VALUE = "__no_department__";
+const NO_MANAGER_SELECT_VALUE = "__no_manager__";
+const EMPLOYMENT_TYPE_PLACEHOLDER_VALUE = "__employment_type_placeholder__";
+const CUSTOM_SELECT_PLACEHOLDER_VALUE = "__custom_select_placeholder__";
 
 const wizardSteps = [
   {
@@ -112,6 +120,16 @@ const sanitizeRecord = (record: Record<string, unknown>) =>
     })
   );
 
+const EMPLOYEE_PERMISSION_LIST = [
+  "employees.read",
+  "employees.write",
+  "employees.import",
+  "employees.export",
+  "employees.delete",
+  "employees.compensation.read",
+  "employees.sensitive.read",
+] as const;
+
 export async function loader() {
   const baseUrl =
     (import.meta as any).env?.VITE_BACKEND_URL ??
@@ -170,6 +188,20 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
   
   // Import wizard state
   const [showImportWizard, setShowImportWizard] = React.useState(false);
+  const permissionKeys = React.useMemo(() => [...EMPLOYEE_PERMISSION_LIST], []);
+  const { permissions: permissionMap, loading: permissionsLoading } = usePermissions(permissionKeys, {
+    tenantId,
+    skip: !tenantId,
+  });
+  const canRead = permissionMap["employees.read"] ?? false;
+  const canWrite = permissionMap["employees.write"] ?? false;
+  const canCreate = canWrite;
+  const canImport = permissionMap["employees.import"] ?? false;
+  const canExport = permissionMap["employees.export"] ?? false;
+  const canDelete = permissionMap["employees.delete"] ?? false;
+  const canViewCompensation = permissionMap["employees.compensation.read"] ?? false;
+  const canViewSensitive = permissionMap["employees.sensitive.read"] ?? false;
+  const tenantIdForTable = canRead ? tenantId : null;
 
   const {
     data,
@@ -187,13 +219,13 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     refresh,
   } = useEmployeesTable({ 
     apiBaseUrl, 
-    tenantId,
+    tenantId: tenantIdForTable,
     departmentId: departmentFilter || undefined,
     officeLocationId: locationFilter || undefined,
     status: statusFilter || undefined,
   });
 
-  const { fieldDefs, loading: defsLoading } = useEmployeeFieldDefs({ apiBaseUrl, tenantId });
+  const { fieldDefs, loading: defsLoading } = useEmployeeFieldDefs({ apiBaseUrl, tenantId: tenantIdForTable });
 
   React.useEffect(() => {
     let cancelled = false;
@@ -294,6 +326,10 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
 
   const handleExport = React.useCallback(async () => {
     if (!tenantId) return;
+    if (!canExport) {
+      setMutationError("You do not have permission to export employees.");
+      return;
+    }
     
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -328,10 +364,14 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
       console.error("Export error:", error);
       setMutationError(message);
     }
-  }, [apiBaseUrl, tenantId, departmentFilter, statusFilter]);
+  }, [apiBaseUrl, canExport, tenantId, departmentFilter, statusFilter]);
 
   const handleBulkExport = React.useCallback(async () => {
     if (!tenantId || selectedEmployees.size === 0) return;
+    if (!canExport) {
+      toast.showToast("You do not have permission to export employees.", "error");
+      return;
+    }
     
     setBulkActionLoading(true);
     try {
@@ -367,10 +407,14 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     } finally {
       setBulkActionLoading(false);
     }
-  }, [apiBaseUrl, tenantId, selectedEmployees, toast]);
+  }, [apiBaseUrl, canExport, tenantId, selectedEmployees, toast]);
 
   const handleBulkDelete = React.useCallback(async () => {
     if (!tenantId || selectedEmployees.size === 0) return;
+    if (!canDelete) {
+      toast.showToast("You do not have permission to delete employees.", "error");
+      return;
+    }
     
     setBulkActionLoading(true);
     setBulkDeleteDialogOpen(false);
@@ -417,10 +461,14 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     } finally {
       setBulkActionLoading(false);
     }
-  }, [apiBaseUrl, tenantId, selectedEmployees, refresh, toast]);
+  }, [apiBaseUrl, canDelete, tenantId, selectedEmployees, refresh, toast]);
 
   const handleBulkStatusUpdate = React.useCallback(async () => {
     if (!tenantId || selectedEmployees.size === 0 || !bulkStatusValue) return;
+    if (!canWrite) {
+      toast.showToast("You do not have permission to update employee status.", "error");
+      return;
+    }
     
     setBulkActionLoading(true);
     setBulkStatusDialogOpen(false);
@@ -471,7 +519,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     } finally {
       setBulkActionLoading(false);
     }
-  }, [apiBaseUrl, tenantId, selectedEmployees, bulkStatusValue, bulkStatusReason, refresh, toast]);
+  }, [apiBaseUrl, canWrite, tenantId, selectedEmployees, bulkStatusValue, bulkStatusReason, refresh, toast]);
 
   const handleSelectEmployee = React.useCallback((employeeId: string, selected: boolean) => {
     setSelectedEmployees(prev => {
@@ -523,11 +571,21 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
   );
 
   const handleOpenWizard = React.useCallback(() => {
-    if (!tenantId) return;
+    if (!tenantId || !canCreate) {
+      toast.showToast("You do not have permission to create employees.", "error");
+      return;
+    }
     resetWizardState();
     setWizardError(null);
     setDrawerOpen(true);
-  }, [resetWizardState, tenantId]);
+  }, [canCreate, resetWizardState, tenantId, toast]);
+  const handleOpenImportWizard = React.useCallback(() => {
+    if (!canImport) {
+      toast.showToast("You do not have permission to import employees.", "error");
+      return;
+    }
+    setShowImportWizard(true);
+  }, [canImport, toast]);
 
   const handleCloseWizard = React.useCallback(() => {
     setDrawerOpen(false);
@@ -554,6 +612,10 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
   const handleCreate = React.useCallback(
     async ({ closeAfter = true }: { closeAfter?: boolean } = {}) => {
       if (!tenantId) return;
+      if (!canWrite) {
+        setMutationError("You do not have permission to create employees.");
+        return;
+      }
       const firstInvalid = wizardSteps.find((step) => step.required && validateStepById(step.id));
       if (firstInvalid) {
         setWizardError(validateStepById(firstInvalid.id));
@@ -719,7 +781,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
         setCreating(false);
       }
     },
-    [apiBaseUrl, createForm, refresh, resetWizardState, tenantId, validateStepById]
+    [apiBaseUrl, canWrite, createForm, refresh, resetWizardState, tenantId, validateStepById]
   );
 
   const dataLength = data.length;
@@ -727,6 +789,10 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
   const handleRemove = React.useCallback(
     async (employee: Employee) => {
       if (!tenantId) return;
+      if (!canDelete) {
+        toast.showToast("You do not have permission to delete employees.", "error");
+        return;
+      }
       setMutationError(null);
       setRemovingId(employee.id);
       try {
@@ -771,7 +837,7 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
         setRemovingId((current) => (current === employee.id ? null : current));
       }
     },
-    [apiBaseUrl, dataLength, pageIndex, pageSize, refresh, setPageIndex, tenantId, total]
+    [apiBaseUrl, canDelete, dataLength, pageIndex, pageSize, refresh, setPageIndex, tenantId, toast, total]
   );
 
   const managerOptions = React.useMemo(
@@ -783,10 +849,23 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
     [data]
   );
 
-  if (initializing) {
+  if (initializing || permissionsLoading) {
     return (
       <div className="flex flex-1 items-center justify-center py-20 text-sm text-muted-foreground">
         {t("employees.loadingEmployees")}
+      </div>
+    );
+  }
+
+  if (!canRead) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-6 py-20 text-center">
+        <div className="max-w-md space-y-3">
+          <h2 className="text-2xl font-semibold text-foreground">Insufficient permissions</h2>
+          <p className="text-sm text-muted-foreground">
+            You do not have access to view employee records. Please contact your workspace administrator if you believe this is a mistake.
+          </p>
+        </div>
       </div>
     );
   }
@@ -842,38 +921,44 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                 <RefreshCw className={cn("mr-2 h-4 w-4", tableLoading && "animate-spin")} />
                 {t("common.refresh")}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                onClick={handleExport}
-                disabled={!tenantId}
-                className="h-12 rounded-xl border border-input"
-              >
-                <Download className="mr-2 h-4 w-4" />
-                {t("common.export")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                onClick={() => setShowImportWizard(true)}
-                disabled={!tenantId}
-                className="h-12 rounded-xl border border-input"
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                {t("common.import")}
-              </Button>
-              <Button
-                type="button"
-                size="lg"
-                className="h-12 rounded-xl bg-orange-500 text-orange-50 hover:bg-orange-500/90"
-                onClick={handleOpenWizard}
-                disabled={!tenantId || defsLoading}
-              >
-                <Plus className="mr-2 h-5 w-5" />
-                {t("employees.addEmployee")}
-              </Button>
+              {canExport ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  onClick={handleExport}
+                  disabled={!tenantId}
+                  className="h-12 rounded-xl border border-input"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {t("common.export")}
+                </Button>
+              ) : null}
+              {canImport ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  onClick={handleOpenImportWizard}
+                  disabled={!tenantId}
+                  className="h-12 rounded-xl border border-input"
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {t("common.import")}
+                </Button>
+              ) : null}
+              {canCreate ? (
+                <Button
+                  type="button"
+                  size="lg"
+                  className="h-12 rounded-xl bg-orange-500 text-orange-50 hover:bg-orange-500/90"
+                  onClick={handleOpenWizard}
+                  disabled={!tenantId || defsLoading}
+                >
+                  <Plus className="mr-2 h-5 w-5" />
+                  {t("employees.addEmployee")}
+                </Button>
+              ) : null}
             </div>
           </div>
           
@@ -897,138 +982,139 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               </Button>
               
               {selectedEmployees.size > 0 && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">
                     {selectedEmployees.size} {t("employees.selected")}
                   </Badge>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleBulkExport}
-                    disabled={bulkActionLoading}
-                    className="h-10"
-                  >
-                    {bulkActionLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="mr-2 h-4 w-4" />
-                    )}
-                    {t("common.export")}
-                  </Button>
-                  <Dialog open={bulkStatusDialogOpen} onOpenChange={setBulkStatusDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={bulkActionLoading}
-                        className="h-10"
-                      >
-                        {t("employees.changeStatus")}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>{t("employees.statusChange")} {selectedEmployees.size} {t("employees.employees")}</DialogTitle>
-                        <DialogDescription>
-                          {t("employees.selectStatus")}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="bulk-status">{t("common.status")} *</Label>
-                          <Select
-                            value={bulkStatusValue}
-                            onValueChange={(value) => setBulkStatusValue(value as EmploymentStatus)}
-                          >
-                            <SelectTrigger id="bulk-status">
-                              <SelectValue placeholder={t("employees.selectStatus")} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="active">{t("common.active")}</SelectItem>
-                              <SelectItem value="on_leave">{t("leave.requests")}</SelectItem>
-                              <SelectItem value="terminated">{t("common.delete")}</SelectItem>
-                              <SelectItem value="inactive">{t("common.inactive")}</SelectItem>
-                            </SelectContent>
-                          </Select>
+                  {canExport ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBulkExport}
+                      disabled={bulkActionLoading}
+                      className="h-10"
+                    >
+                      {bulkActionLoading ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="mr-2 h-4 w-4" />
+                      )}
+                      {t("common.export")}
+                    </Button>
+                  ) : null}
+                  {canWrite ? (
+                    <Dialog open={bulkStatusDialogOpen} onOpenChange={setBulkStatusDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={bulkActionLoading}
+                          className="h-10"
+                        >
+                          {t("employees.changeStatus")}
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>
+                            {t("employees.statusChange")} {selectedEmployees.size} {t("employees.employees")}
+                          </DialogTitle>
+                          <DialogDescription>{t("employees.selectStatus")}</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="bulk-status">{t("common.status")} *</Label>
+                            <Select
+                              value={bulkStatusValue}
+                              onValueChange={(value) => setBulkStatusValue(value as EmploymentStatus)}
+                            >
+                              <SelectTrigger id="bulk-status">
+                                <SelectValue placeholder={t("employees.selectStatus")} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">{t("common.active")}</SelectItem>
+                                <SelectItem value="on_leave">{t("leave.requests")}</SelectItem>
+                                <SelectItem value="terminated">{t("common.delete")}</SelectItem>
+                                <SelectItem value="inactive">{t("common.inactive")}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor="bulk-status-reason">
+                              {t("leave.reason")} ({t("common.optional")})
+                            </Label>
+                            <Textarea
+                              id="bulk-status-reason"
+                              placeholder={t("employees.reasonForStatusChange")}
+                              value={bulkStatusReason}
+                              onChange={(e) => setBulkStatusReason(e.target.value)}
+                              rows={3}
+                            />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setBulkStatusDialogOpen(false)}>
+                              {t("common.cancel")}
+                            </Button>
+                            <Button onClick={handleBulkStatusUpdate} disabled={!bulkStatusValue || bulkActionLoading}>
+                              {bulkActionLoading ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  {t("common.updating")}
+                                </>
+                              ) : (
+                                t("employees.changeStatus")
+                              )}
+                            </Button>
+                          </div>
                         </div>
-                        <div>
-                          <Label htmlFor="bulk-status-reason">{t("leave.reason")} ({t("common.optional")})</Label>
-                          <Textarea
-                            id="bulk-status-reason"
-                            placeholder={t("employees.reasonForStatusChange")}
-                            value={bulkStatusReason}
-                            onChange={(e) => setBulkStatusReason(e.target.value)}
-                            rows={3}
-                          />
+                      </DialogContent>
+                    </Dialog>
+                  ) : null}
+                  {canDelete ? (
+                    <Dialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={bulkActionLoading}
+                          className="h-10 text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {t("common.delete")}
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>
+                            {t("common.delete")} {selectedEmployees.size} {t("employees.employees")}?
+                          </DialogTitle>
+                          <DialogDescription>{t("employees.confirmDelete")}</DialogDescription>
+                        </DialogHeader>
+                        <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                          <AlertCircle className="h-4 w-4" />
+                          <span>{t("common.warning")}</span>
                         </div>
                         <div className="flex justify-end gap-2">
-                          <Button variant="outline" onClick={() => setBulkStatusDialogOpen(false)}>
+                          <Button variant="outline" onClick={() => setBulkDeleteDialogOpen(false)}>
                             {t("common.cancel")}
                           </Button>
-                          <Button
-                            onClick={handleBulkStatusUpdate}
-                            disabled={!bulkStatusValue || bulkActionLoading}
-                          >
+                          <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkActionLoading}>
                             {bulkActionLoading ? (
                               <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                {t("common.updating")}
+                                {t("common.deleting")}
                               </>
                             ) : (
-                              t("employees.changeStatus")
+                              t("common.confirm") + " " + t("common.delete")
                             )}
                           </Button>
                         </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <Dialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={bulkActionLoading}
-                        className="h-10 text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        {t("common.delete")}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>{t("common.delete")} {selectedEmployees.size} {t("employees.employees")}?</DialogTitle>
-                        <DialogDescription>
-                          {t("employees.confirmDelete")}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                        <AlertCircle className="h-4 w-4" />
-                        <span>{t("common.warning")}</span>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => setBulkDeleteDialogOpen(false)}>
-                          {t("common.cancel")}
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          onClick={handleBulkDelete}
-                          disabled={bulkActionLoading}
-                        >
-                          {bulkActionLoading ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              {t("common.deleting")}
-                            </>
-                          ) : (
-                            t("common.confirm") + " " + t("common.delete")
-                          )}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogContent>
+                    </Dialog>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
@@ -1050,49 +1136,63 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <label className="text-sm font-medium mb-2 block">Department</label>
-                  <select
-                    value={departmentFilter}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDepartmentFilter(e.target.value)}
-                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  <Select
+                    value={departmentFilter || ALL_DEPARTMENT_FILTER_VALUE}
+                    onValueChange={(value) => setDepartmentFilter(value === ALL_DEPARTMENT_FILTER_VALUE ? "" : value)}
                   >
-                    <option value="">All Departments</option>
-                    {departments.map(dept => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-10 w-full">
+                      <SelectValue placeholder="All Departments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_DEPARTMENT_FILTER_VALUE}>All Departments</SelectItem>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 
                 <div>
                   <label className="text-sm font-medium mb-2 block">Office Location</label>
-                  <select
-                    value={locationFilter}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setLocationFilter(e.target.value)}
-                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  <Select
+                    value={locationFilter || ALL_LOCATION_FILTER_VALUE}
+                    onValueChange={(value) => setLocationFilter(value === ALL_LOCATION_FILTER_VALUE ? "" : value)}
                   >
-                    <option value="">All Locations</option>
-                    {officeLocations.map(loc => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-10 w-full">
+                      <SelectValue placeholder="All Locations" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_LOCATION_FILTER_VALUE}>All Locations</SelectItem>
+                      {officeLocations.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 
                 <div>
                   <label className="text-sm font-medium mb-2 block">Status</label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value)}
-                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                  <Select
+                    value={statusFilter || ALL_STATUS_FILTER_VALUE}
+                    onValueChange={(value) =>
+                      setStatusFilter(value === ALL_STATUS_FILTER_VALUE ? "" : (value as EmploymentStatus))
+                    }
                   >
-                    <option value="">All Statuses</option>
-                    <option value="active">Active</option>
-                    <option value="on_leave">On Leave</option>
-                    <option value="terminated">Terminated</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
+                    <SelectTrigger className="h-10 w-full">
+                      <SelectValue placeholder="All Statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_STATUS_FILTER_VALUE}>All Statuses</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="on_leave">On Leave</SelectItem>
+                      <SelectItem value="terminated">Terminated</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 
                 <div className="flex items-end">
@@ -1145,6 +1245,9 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
             onSelectAll={handleSelectAll}
             departmentFilter={departmentFilter}
             statusFilter={statusFilter}
+            showCompensationColumns={canViewCompensation}
+            showSensitiveColumns={canViewSensitive}
+            canRemove={canDelete}
           />
         </section>
       </div>
@@ -1270,42 +1373,50 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                     />
                   </FieldGroup>
                   <FieldGroup label={t("employees.department")}>
-                    <select
-                      value={createForm.job.department}
-                      onChange={(event) =>
+                    <Select
+                      value={createForm.job.department || NO_DEPARTMENT_SELECT_VALUE}
+                      onValueChange={(value) =>
                         setCreateForm((state) => ({
                           ...state,
-                          job: { ...state.job, department: event.target.value },
+                          job: { ...state.job, department: value === NO_DEPARTMENT_SELECT_VALUE ? "" : value },
                         }))
                       }
-                      className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     >
-                      <option value="">Select department...</option>
-                      {departments.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-12 w-full rounded-xl px-4">
+                        <SelectValue placeholder="Select department..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_DEPARTMENT_SELECT_VALUE}>Select department...</SelectItem>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FieldGroup>
                   <FieldGroup label={t("employees.manager")}>
-                    <select
-                      value={createForm.job.managerId}
-                      onChange={(event) =>
+                    <Select
+                      value={createForm.job.managerId || NO_MANAGER_SELECT_VALUE}
+                      onValueChange={(value) =>
                         setCreateForm((state) => ({
                           ...state,
-                          job: { ...state.job, managerId: event.target.value },
+                          job: { ...state.job, managerId: value === NO_MANAGER_SELECT_VALUE ? "" : value },
                         }))
                       }
-                      className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     >
-                      <option value="">Select manager...</option>
-                      {managerOptions.map((manager) => (
-                        <option key={manager.id} value={manager.id}>
-                          {manager.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-12 w-full rounded-xl px-4">
+                        <SelectValue placeholder="Select manager..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_MANAGER_SELECT_VALUE}>Select manager...</SelectItem>
+                        {managerOptions.map((manager) => (
+                          <SelectItem key={manager.id} value={manager.id}>
+                            {manager.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FieldGroup>
                   <FieldGroup label={t("employees.startDate")}>
                     <input
@@ -1326,23 +1437,30 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
               {currentStep.id === "compensation" ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <FieldGroup label={t("employees.employmentType")}>
-                    <select
-                      value={createForm.compensation.employmentType}
-                      onChange={(event) =>
+                    <Select
+                      value={createForm.compensation.employmentType || EMPLOYMENT_TYPE_PLACEHOLDER_VALUE}
+                      onValueChange={(value) =>
                         setCreateForm((state) => ({
                           ...state,
-                          compensation: { ...state.compensation, employmentType: event.target.value },
+                          compensation: {
+                            ...state.compensation,
+                            employmentType: value === EMPLOYMENT_TYPE_PLACEHOLDER_VALUE ? "" : value,
+                          },
                         }))
                       }
-                      className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     >
-                      <option value="">Select type...</option>
-                      {employmentTypes.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-12 w-full rounded-xl px-4">
+                        <SelectValue placeholder="Select type..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={EMPLOYMENT_TYPE_PLACEHOLDER_VALUE}>Select type...</SelectItem>
+                        {employmentTypes.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FieldGroup>
                   <FieldGroup label={t("employees.salaryWage")}>
                     <input
@@ -1359,40 +1477,48 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
                     />
                   </FieldGroup>
                   <FieldGroup label={t("employees.compensationFrequency")}>
-                    <select
+                    <Select
                       value={createForm.compensation.salaryFrequency}
-                      onChange={(event) =>
+                      onValueChange={(value) =>
                         setCreateForm((state) => ({
                           ...state,
-                          compensation: { ...state.compensation, salaryFrequency: event.target.value },
+                          compensation: { ...state.compensation, salaryFrequency: value },
                         }))
                       }
-                      className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     >
-                      {salaryFrequencyOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-12 w-full rounded-xl px-4">
+                        <SelectValue placeholder={t("employees.compensationFrequency")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {salaryFrequencyOptions.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FieldGroup>
                   <FieldGroup label={t("employees.currency")}>
-                    <select
+                    <Select
                       value={createForm.compensation.currency}
-                      onChange={(event) =>
+                      onValueChange={(value) =>
                         setCreateForm((state) => ({
                           ...state,
-                          compensation: { ...state.compensation, currency: event.target.value },
+                          compensation: { ...state.compensation, currency: value },
                         }))
                       }
-                      className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     >
-                      {currencyOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-12 w-full rounded-xl px-4">
+                        <SelectValue placeholder={t("employees.currency")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {currencyOptions.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FieldGroup>
                   <FieldGroup label={t("employees.bankDetails")} className="md:col-span-2">
                     <textarea
@@ -1511,17 +1637,19 @@ export default function Employees({ loaderData }: Route.ComponentProps) {
       </SlideOver>
       
       {/* Import Wizard */}
-      <ImportWizard
-        isOpen={showImportWizard}
-        onClose={() => setShowImportWizard(false)}
-        onComplete={() => {
-          setShowImportWizard(false);
-          // Refresh the employee list
-          revalidator.revalidate();
-        }}
-        apiBaseUrl={apiBaseUrl}
-        tenantId={tenantId || ""}
-      />
+      {canImport ? (
+        <ImportWizard
+          isOpen={showImportWizard}
+          onClose={() => setShowImportWizard(false)}
+          onComplete={() => {
+            setShowImportWizard(false);
+            // Refresh the employee list
+            revalidator.revalidate();
+          }}
+          apiBaseUrl={apiBaseUrl}
+          tenantId={tenantId || ""}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1669,6 +1797,7 @@ function DynamicFieldInput({ def, value, onChange, disabled }: {
     disabled,
     className: "h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20",
   } as const;
+  const selectTriggerClassName = baseProps.className;
   return (
     <label className="flex flex-col gap-2 text-left">
       <span className="text-sm font-semibold text-foreground">{def.name}</span>
@@ -1684,29 +1813,39 @@ function DynamicFieldInput({ def, value, onChange, disabled }: {
       ) : def.type === "date" ? (
         <input type="date" {...baseProps} value={String(value ?? "").slice(0, 10)} onChange={(e) => onChange(e.target.value)} />
       ) : def.type === "boolean" ? (
-        <select
-          {...baseProps}
+        <Select
           value={String(Boolean(value))}
-          onChange={(e) => onChange(e.target.value === "true")}
+          onValueChange={(val) => onChange(val === "true")}
+          disabled={disabled}
         >
-          <option value="true">True</option>
-          <option value="false">False</option>
-        </select>
+          <SelectTrigger id={id} className={selectTriggerClassName}>
+            <SelectValue placeholder="Select..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="true">True</SelectItem>
+            <SelectItem value="false">False</SelectItem>
+          </SelectContent>
+        </Select>
       ) : def.type === "select" ? (
-        <select
-          {...baseProps}
-          value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
+        <Select
+          value={String(value ?? "") || CUSTOM_SELECT_PLACEHOLDER_VALUE}
+          onValueChange={(val) => onChange(val === CUSTOM_SELECT_PLACEHOLDER_VALUE ? "" : val)}
+          disabled={disabled}
         >
-          <option value="">Select...</option>
-          {Array.isArray((def.options as any)?.choices)
-            ? ((def.options as any).choices as string[]).map((opt: string) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))
-            : null}
-        </select>
+          <SelectTrigger id={id} className={selectTriggerClassName}>
+            <SelectValue placeholder="Select..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={CUSTOM_SELECT_PLACEHOLDER_VALUE}>Select...</SelectItem>
+            {Array.isArray((def.options as any)?.choices)
+              ? ((def.options as any).choices as string[]).map((opt: string) => (
+                  <SelectItem key={opt} value={opt}>
+                    {opt}
+                  </SelectItem>
+                ))
+              : null}
+          </SelectContent>
+        </Select>
       ) : (
         <input type="text" {...baseProps} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />
       )}

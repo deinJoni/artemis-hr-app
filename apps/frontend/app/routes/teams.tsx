@@ -18,6 +18,8 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
 import { Badge } from "~/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { Checkbox } from "~/components/ui/checkbox";
 import { supabase } from "~/lib/supabase";
 import { cn } from "~/lib/utils";
 import {
@@ -34,6 +36,11 @@ type TeamState = {
   teams: TeamWithMembers[];
   error: string | null;
 };
+
+const ALL_DEPARTMENTS_VALUE = "__all_departments__"
+const NO_DEPARTMENT_VALUE = "__no_department__"
+const NO_TEAM_LEAD_VALUE = "__no_team_lead__"
+const NO_OFFICE_LOCATION_VALUE = "__no_office_location__"
 
 export async function loader() {
   const baseUrl =
@@ -87,6 +94,10 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
   const [officeLocations, setOfficeLocations] = React.useState<OfficeLocation[]>([]);
   const [addingMembers, setAddingMembers] = React.useState(false);
   const [selectedEmployees, setSelectedEmployees] = React.useState<Set<string>>(new Set());
+  const availableEmployees = React.useMemo(() => {
+    const memberIds = new Set(teamDetail?.members?.map((member) => member.id) ?? []);
+    return employees.filter((emp) => !memberIds.has(emp.id));
+  }, [employees, teamDetail]);
 
   const loadTeams = React.useCallback(async () => {
     setState(prev => ({ ...prev, status: "loading" }));
@@ -510,18 +521,22 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
               {departments.length > 0 && (
                 <div>
                   <Label className="text-sm">Filter by Department</Label>
-                  <select
-                    value={departmentFilter}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDepartmentFilter(e.target.value)}
-                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm mt-2"
+                  <Select
+                    value={departmentFilter || ALL_DEPARTMENTS_VALUE}
+                    onValueChange={(value) => setDepartmentFilter(value === ALL_DEPARTMENTS_VALUE ? "" : value)}
                   >
-                    <option value="">All Departments</option>
-                    {departments.map(dept => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="mt-2 h-10 w-full">
+                      <SelectValue placeholder="All Departments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_DEPARTMENTS_VALUE}>All Departments</SelectItem>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             </CardHeader>
@@ -649,56 +664,72 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                   
                   <div>
                     <Label htmlFor="department">Department</Label>
-                    <select
-                      id="department"
-                      value={editForm.departmentId}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditForm(prev => ({ ...prev, departmentId: e.target.value }))}
-                      className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                    <Select
+                      value={editForm.departmentId || NO_DEPARTMENT_VALUE}
+                      onValueChange={(value) =>
+                        setEditForm((prev) => ({ ...prev, departmentId: value === NO_DEPARTMENT_VALUE ? "" : value }))
+                      }
                     >
-                      <option value="">No department</option>
-                      {departments.map(dept => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="department" className="h-10 w-full">
+                        <SelectValue placeholder="No department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_DEPARTMENT_VALUE}>No department</SelectItem>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   
                   <div>
                     <Label htmlFor="teamLead">Team Lead</Label>
-                    <select
-                      id="teamLead"
-                      value={editForm.teamLeadId}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditForm(prev => ({ ...prev, teamLeadId: e.target.value }))}
-                      className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                    <Select
+                      value={editForm.teamLeadId || NO_TEAM_LEAD_VALUE}
+                      onValueChange={(value) =>
+                        setEditForm((prev) => ({ ...prev, teamLeadId: value === NO_TEAM_LEAD_VALUE ? "" : value }))
+                      }
                     >
-                      <option value="">No team lead</option>
-                      {employees.map(emp => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="teamLead" className="h-10 w-full">
+                        <SelectValue placeholder="No team lead" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_TEAM_LEAD_VALUE}>No team lead</SelectItem>
+                        {employees.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            {emp.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   
                   <div>
                     <Label htmlFor="teamLocation">Office Location</Label>
-                    <select
-                      id="teamLocation"
-                      value={editForm.officeLocationId}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                        setEditForm(prev => ({ ...prev, officeLocationId: e.target.value }))
+                    <Select
+                      value={editForm.officeLocationId || NO_OFFICE_LOCATION_VALUE}
+                      onValueChange={(value) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          officeLocationId: value === NO_OFFICE_LOCATION_VALUE ? "" : value,
+                        }))
                       }
-                      className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
                     >
-                      <option value="">No office location</option>
-                      {officeLocations.map(location => (
-                        <option key={location.id} value={location.id}>
-                          {location.name}
-                          {location.timezone ? ` (${location.timezone})` : ""}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="teamLocation" className="h-10 w-full">
+                        <SelectValue placeholder="No office location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_OFFICE_LOCATION_VALUE}>No office location</SelectItem>
+                        {officeLocations.map((location) => (
+                          <SelectItem key={location.id} value={location.id}>
+                            {location.name}
+                            {location.timezone ? ` (${location.timezone})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   
                   <div className="flex gap-2">
@@ -773,25 +804,39 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
                 
                 <div>
                   <Label className="text-sm font-semibold mb-2 block">Add Members</Label>
-                  <select
-                    multiple
-                    value={Array.from(selectedEmployees)}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
-                      setSelectedEmployees(new Set(selected));
-                    }}
-                    className="w-full min-h-32 px-3 py-2 border border-input bg-background rounded-md text-sm"
-                  >
-                    {employees
-                      .filter(emp => !teamDetail.members?.some((m: Employee) => m.id === emp.id))
-                      .map(emp => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-input bg-background p-2">
+                    {availableEmployees.length ? (
+                      availableEmployees.map((emp) => {
+                        const isSelected = selectedEmployees.has(emp.id);
+                        return (
+                          <label
+                            key={emp.id}
+                            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted/60"
+                          >
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={(checked) =>
+                                setSelectedEmployees((prev) => {
+                                  const next = new Set(prev);
+                                  if (checked === true) {
+                                    next.add(emp.id);
+                                  } else {
+                                    next.delete(emp.id);
+                                  }
+                                  return next;
+                                })
+                              }
+                            />
+                            <span className="truncate">{emp.name}</span>
+                          </label>
+                        );
+                      })
+                    ) : (
+                      <p className="px-2 py-1 text-sm text-muted-foreground">No available employees to add.</p>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Hold Ctrl/Cmd to select multiple
+                    Select one or more employees to add to this team.
                   </p>
                   <Button
                     onClick={handleAddMembers}
@@ -821,4 +866,3 @@ export default function Teams({ loaderData }: { loaderData?: { baseUrl?: string 
     </div>
   );
 }
-

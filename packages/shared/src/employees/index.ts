@@ -42,6 +42,10 @@ export const DocumentCategoryEnum = z.enum([
   "other",
 ]);
 export type DocumentCategory = z.infer<typeof DocumentCategoryEnum>;
+export const DocumentStatusFilterEnum = z.enum(["all", "current", "archived"]);
+export type DocumentStatusFilter = z.infer<typeof DocumentStatusFilterEnum>;
+export const DocumentExpiryFilterEnum = z.enum(["all", "expiring", "expired"]);
+export type DocumentExpiryFilter = z.infer<typeof DocumentExpiryFilterEnum>;
 
 export const AuditActionEnum = z.enum([
   "created",
@@ -69,6 +73,7 @@ export const EmployeeSchema = z.object({
   email: z.string().email(),
   name: z.string(),
   manager_id: z.string().uuid().nullable(),
+  dotted_line_manager_id: z.string().uuid().nullable().optional(),
   custom_fields: z.record(z.string(), z.any()).optional().nullable(),
   created_at: z.string(),
   employee_number: z.string().nullable(),
@@ -134,6 +139,7 @@ export const EmployeeUpdateInputSchema = requireAtLeastOneField(
     email: z.string().email().optional(),
     name: z.string().min(1).optional(),
     manager_id: z.string().uuid().nullable().optional(),
+    dotted_line_manager_id: z.string().uuid().nullable().optional(),
     custom_fields: z.record(z.string(), z.any()).optional().nullable(),
     employee_number: z.string().optional(),
     date_of_birth: z.string().optional(),
@@ -180,6 +186,48 @@ export const EmployeeDocumentSchema = z.object({
   updated_at: z.string(),
 });
 export type EmployeeDocument = z.infer<typeof EmployeeDocumentSchema>;
+
+export const EmployeeDocumentStatsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  current: z.number().int().nonnegative(),
+  archived: z.number().int().nonnegative(),
+  categories: z.record(z.string(), z.number().int().nonnegative()),
+  expiringSoon: z.number().int().nonnegative(),
+  expired: z.number().int().nonnegative(),
+});
+export type EmployeeDocumentStats = z.infer<typeof EmployeeDocumentStatsSchema>;
+
+export const EmployeeDocumentListResponseSchema = z.object({
+  documents: z.array(EmployeeDocumentSchema),
+  filters: z.object({
+    category: DocumentCategoryEnum.nullable(),
+    status: DocumentStatusFilterEnum,
+    expiry: DocumentExpiryFilterEnum,
+  }),
+  stats: EmployeeDocumentStatsSchema,
+});
+export type EmployeeDocumentListResponse = z.infer<
+  typeof EmployeeDocumentListResponseSchema
+>;
+
+export const EmployeeNoteSchema = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  employee_id: z.string().uuid(),
+  body: z.string(),
+  created_by: z.string().uuid(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type EmployeeNote = z.infer<typeof EmployeeNoteSchema>;
+
+export const EmployeeNoteCreateSchema = z.object({
+  body: z.string().min(1).max(5000),
+});
+export type EmployeeNoteCreate = z.infer<typeof EmployeeNoteCreateSchema>;
+
+export const EmployeeNoteUpdateSchema = EmployeeNoteCreateSchema;
+export type EmployeeNoteUpdate = z.infer<typeof EmployeeNoteUpdateSchema>;
 
 export const DepartmentSchema = z.object({
   id: z.string().uuid(),
@@ -450,7 +498,7 @@ export const EmployeeCustomFieldDefSchema = z.object({
   key: z
     .string()
     .min(1)
-    .regex(/^[a-z0-9_\-]+$/, "Lowercase letters, numbers, dash or underscore only"),
+    .regex(/^[a-z0-9_-]+$/, "Lowercase letters, numbers, dash or underscore only"),
   type: EmployeeCustomFieldTypeEnum,
   required: z.boolean().default(false),
   options: z.record(z.string(), z.any()).nullable().optional(),
@@ -487,6 +535,7 @@ export const EmployeeDetailResponseSchema = z.object({
   employee: EmployeeSchema,
   customFieldDefs: z.array(EmployeeCustomFieldDefSchema),
   documents: z.array(EmployeeDocumentSchema),
+  notes: z.array(EmployeeNoteSchema).optional(),
   managerOptions: z.array(EmployeeManagerOptionSchema),
   department: DepartmentSchema.nullable(),
   officeLocation: OfficeLocationSchema.nullable(),
@@ -554,3 +603,79 @@ export const BulkOperationResultSchema = z.object({
   })).optional(),
 });
 export type BulkOperationResult = z.infer<typeof BulkOperationResultSchema>;
+
+// ==============================================
+// Organizational Structure Schemas
+// ==============================================
+
+export const ReportingLineSchema = z.object({
+  employee_id: z.string().uuid(),
+  manager_id: z.string().uuid().nullable(),
+  dotted_line_manager_id: z.string().uuid().nullable(),
+  manager_name: z.string().nullable(),
+  dotted_line_manager_name: z.string().nullable(),
+});
+export type ReportingLine = z.infer<typeof ReportingLineSchema>;
+
+export const OrgStructureNodeSchema = z.object({
+  employee_id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  employee_name: z.string(),
+  email: z.string().email(),
+  job_title: z.string().nullable(),
+  employee_number: z.string().nullable(),
+  status: EmploymentStatusEnum,
+  manager_id: z.string().uuid().nullable(),
+  dotted_line_manager_id: z.string().uuid().nullable(),
+  department_id: z.string().uuid().nullable(),
+  department_name: z.string().nullable(),
+  office_location_id: z.string().uuid().nullable(),
+  location_name: z.string().nullable(),
+  manager_name: z.string().nullable(),
+  manager_email: z.string().nullable(),
+  dotted_line_manager_name: z.string().nullable(),
+  dotted_line_manager_email: z.string().nullable(),
+  teams: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    description: z.string().nullable(),
+    team_lead_id: z.string().uuid().nullable(),
+  })).optional(),
+  direct_reports: z.array(z.string().uuid()).optional(),
+});
+export type OrgStructureNode = z.infer<typeof OrgStructureNodeSchema>;
+
+export const OrgStructureResponseSchema = z.object({
+  nodes: z.array(OrgStructureNodeSchema),
+  departments: z.array(DepartmentSchema).optional(),
+  locations: z.array(OfficeLocationSchema).optional(),
+});
+export type OrgStructureResponse = z.infer<typeof OrgStructureResponseSchema>;
+
+export type OrgHierarchyNode = {
+  id: string;
+  name: string;
+  job_title: string | null;
+  email: string;
+  department_name: string | null;
+  children?: OrgHierarchyNode[];
+};
+
+export const OrgHierarchyNodeSchema: z.ZodType<OrgHierarchyNode> = z.object({
+  id: z.string(), // Allow non-UUID for synthetic root nodes (e.g., 'root')
+  name: z.string(),
+  job_title: z.string().nullable(),
+  email: z.union([z.string().email(), z.literal('')]), // Allow empty string for synthetic root nodes
+  department_name: z.string().nullable(),
+  children: z.array(z.lazy(() => OrgHierarchyNodeSchema)).optional(),
+});
+
+export const OrgHierarchyResponseSchema = z.object({
+  root: OrgHierarchyNodeSchema.nullable(),
+});
+export type OrgHierarchyResponse = z.infer<typeof OrgHierarchyResponseSchema>;
+
+export const ReportingLinesResponseSchema = z.object({
+  reporting_lines: z.array(ReportingLineSchema),
+});
+export type ReportingLinesResponse = z.infer<typeof ReportingLinesResponseSchema>;

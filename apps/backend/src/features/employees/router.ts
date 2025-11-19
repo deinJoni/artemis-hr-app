@@ -17,16 +17,26 @@ import {
   EmployeeCustomFieldDefSchema,
   EmployeeCustomFieldDefUpdateSchema,
   DocumentCategoryEnum,
+  DocumentExpiryFilterEnum,
+  DocumentStatusFilterEnum,
   EmployeeDetailResponseSchema,
   EmployeeDocumentSchema,
+  EmployeeDocumentListResponseSchema,
   EmployeeListResponseSchema,
   EmployeeManagerOptionSchema,
+  EmployeeNoteCreateSchema,
+  EmployeeNoteSchema,
+  EmployeeNoteUpdateSchema,
   EmployeeSortColumnEnum,
   EmployeeUpdateInputSchema,
+  SelfServiceProfileResponseSchema,
   OfficeLocationCreateInputSchema,
   OfficeLocationListResponseSchema,
   OfficeLocationSchema,
   OfficeLocationUpdateInputSchema,
+  OrgHierarchyResponseSchema,
+  OrgStructureResponseSchema,
+  ReportingLinesResponseSchema,
   TeamCreateInputSchema,
   TeamListResponseSchema,
   TeamMembersAddInputSchema,
@@ -39,20 +49,66 @@ import {
   type EmployeeAuditLog,
   type EmployeeCustomFieldType,
   type EmployeeDocument,
+  type EmployeeDocumentStats,
+  type EmployeeNote,
 } from '@vibe/shared'
 
 import type { Database, Json } from '@database.types.ts'
 import type { User } from '../../types'
 
 import { AuditLogger, extractRequestInfo, findChanges } from '../../lib/audit-logger'
+import { getEmployeeForUser, getPrimaryTenantId } from '../../lib/tenant-context'
 import { supabaseAdmin } from '../../lib/supabase'
 import { WorkflowEngine } from '../../lib/workflow-engine'
 import type { Env } from '../../types'
+import { DOCUMENT_BUCKET } from './utils/storage'
 import {
-  DOCUMENT_BUCKET,
-  buildDocumentStoragePath,
-  sanitizeStorageFileName,
-} from './utils/storage'
+  EmployeeDocumentUploadError,
+  parseDocumentMetadata,
+  saveEmployeeDocument,
+} from './services/document-upload'
+import {
+  SELF_SERVICE_FIELD_KEYS,
+  SelfServiceDraftInputParser,
+  assertNoPendingProfileRequest,
+  buildDiff,
+  extractEmployeeSelfServiceFields,
+  fetchLatestProfileRequest,
+  mapRequestRowToSharedSchema,
+  upsertProfileDraft,
+} from './self-service'
+
+const SELF_SERVICE_ALLOWED_FIELDS = [...SELF_SERVICE_FIELD_KEYS]
+
+async function buildSelfServiceProfilePayload({
+  supabase,
+  tenantId,
+  employee,
+}: {
+  supabase: SupabaseClient<Database>
+  tenantId: string
+  employee: Database['public']['Tables']['employees']['Row']
+}) {
+  const latest = await fetchLatestProfileRequest(supabase, tenantId, employee.id)
+
+  const payload = SelfServiceProfileResponseSchema.safeParse({
+    employee: {
+      id: employee.id,
+      name: employee.name,
+      email: employee.email,
+      phone_personal: employee.phone_personal ?? null,
+      phone_work: employee.phone_work ?? null,
+      emergency_contact_name: employee.emergency_contact_name ?? null,
+      emergency_contact_phone: employee.emergency_contact_phone ?? null,
+      home_address: (employee.home_address as Record<string, unknown> | null) ?? null,
+    },
+    request: latest ? mapRequestRowToSharedSchema(latest) : null,
+    allowed_fields: SELF_SERVICE_ALLOWED_FIELDS,
+  })
+
+  if (!payload.success) throw new Error('Unexpected response shape')
+  return payload.data
+}
 
 export const registerEmployeeRoutes = (app: Hono<Env>) => {
   app.get('/api/employees/:tenantId/:id', async (c) => {
@@ -111,6 +167,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     if (canEditSensitive.error) return c.json({ error: canEditSensitive.error.message }, 400)
 
     let documents: EmployeeDocument[] = []
+    let notes: EmployeeNote[] = []
     if (canViewDocs.data) {
       const docs = await supabase
         .from('employee_documents')
@@ -125,6 +182,17 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
       const parsedDocs = EmployeeDocumentSchema.array().safeParse(docs.data ?? [])
       if (!parsedDocs.success) return c.json({ error: 'Unexpected response shape' }, 500)
       documents = parsedDocs.data
+
+      const notesRes = await supabase
+        .from('employee_notes')
+        .select('id, tenant_id, employee_id, body, created_by, created_at, updated_at')
+        .eq('tenant_id', tenantId)
+        .eq('employee_id', employeeId)
+        .order('created_at', { ascending: false })
+      if (notesRes.error) return c.json({ error: notesRes.error.message }, 400)
+      const parsedNotes = EmployeeNoteSchema.array().safeParse(notesRes.data ?? [])
+      if (!parsedNotes.success) return c.json({ error: 'Unexpected response shape' }, 500)
+      notes = parsedNotes.data
     }
 
     // Fetch department information if employee has a department
@@ -207,6 +275,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
       employee: employee.data,
       customFieldDefs: fieldDefs.data ?? [],
       documents,
+      notes: canViewDocs.data ? notes : undefined,
       managerOptions: parsedManagers.data,
       department,
       officeLocation,
@@ -235,7 +304,32 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     if (canRead.error) return c.json({ error: canRead.error.message }, 400)
     if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
 
-    const docs = await supabase
+    const url = new URL(c.req.url)
+    const rawCategory = url.searchParams.get('category')
+    let categoryFilter: string | null = null
+    if (rawCategory) {
+      const parsedCategory = DocumentCategoryEnum.safeParse(rawCategory)
+      if (!parsedCategory.success) {
+        return c.json({ error: 'Invalid category filter' }, 400)
+      }
+      categoryFilter = parsedCategory.data
+    }
+
+    const rawStatus = url.searchParams.get('status') ?? 'all'
+    const statusParsed = DocumentStatusFilterEnum.safeParse(rawStatus)
+    const status = statusParsed.success ? statusParsed.data : 'all'
+
+    const rawExpiry = url.searchParams.get('expiry') ?? 'all'
+    const expiryParsed = DocumentExpiryFilterEnum.safeParse(rawExpiry)
+    const expiry = expiryParsed.success ? expiryParsed.data : 'all'
+
+    const today = new Date()
+    const todayStr = today.toISOString().slice(0, 10)
+    const soon = new Date(today)
+    soon.setDate(soon.getDate() + 30)
+    const soonStr = soon.toISOString().slice(0, 10)
+
+    let docQuery = supabase
       .from('employee_documents')
       .select(
         'id, tenant_id, employee_id, storage_path, file_name, mime_type, file_size, uploaded_by, uploaded_at, description, version, previous_version_id, is_current, category, expiry_date, updated_at',
@@ -244,11 +338,72 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
       .eq('employee_id', employeeId)
       .order('is_current', { ascending: false })
       .order('uploaded_at', { ascending: false })
+
+    if (categoryFilter) {
+      docQuery = docQuery.eq('category', categoryFilter)
+    }
+    if (status === 'current') {
+      docQuery = docQuery.eq('is_current', true)
+    } else if (status === 'archived') {
+      docQuery = docQuery.eq('is_current', false)
+    }
+    if (expiry === 'expired') {
+      docQuery = docQuery.lte('expiry_date', todayStr).not('expiry_date', 'is', null)
+    } else if (expiry === 'expiring') {
+      docQuery = docQuery.gt('expiry_date', todayStr).lte('expiry_date', soonStr).not('expiry_date', 'is', null)
+    }
+
+    const docs = await docQuery
     if (docs.error) return c.json({ error: docs.error.message }, 400)
 
     const parsed = EmployeeDocumentSchema.array().safeParse(docs.data ?? [])
     if (!parsed.success) return c.json({ error: 'Unexpected response shape' }, 500)
-    return c.json({ documents: parsed.data })
+
+    const statsQuery = await supabase
+      .from('employee_documents')
+      .select('id, is_current, category, expiry_date')
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+    if (statsQuery.error) return c.json({ error: statsQuery.error.message }, 400)
+    const statsRows = statsQuery.data ?? []
+    const stats = statsRows.reduce<EmployeeDocumentStats>(
+      (acc, doc) => {
+        acc.total += 1
+        if (doc.is_current) acc.current += 1
+        else acc.archived += 1
+        if (doc.category) {
+          acc.categories[doc.category] = (acc.categories[doc.category] ?? 0) + 1
+        }
+        if (doc.expiry_date) {
+          if (doc.expiry_date <= todayStr) {
+            acc.expired += 1
+          } else if (doc.expiry_date > todayStr && doc.expiry_date <= soonStr) {
+            acc.expiringSoon += 1
+          }
+        }
+        return acc
+      },
+      {
+        total: 0,
+        current: 0,
+        archived: 0,
+        categories: {},
+        expiringSoon: 0,
+        expired: 0,
+      } as EmployeeDocumentStats,
+    )
+
+    const response = EmployeeDocumentListResponseSchema.safeParse({
+      documents: parsed.data,
+      filters: {
+        category: categoryFilter,
+        status,
+        expiry,
+      },
+      stats,
+    })
+    if (!response.success) return c.json({ error: 'Unexpected response shape' }, 500)
+    return c.json(response.data)
   })
 
   app.post('/api/employees/:tenantId/:id/documents', async (c) => {
@@ -271,100 +426,38 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
           : null
     if (!file) return c.json({ error: 'File is required' }, 400)
 
-    const originalName = file.name && file.name.length > 0 ? file.name : 'document'
-    const safeName = sanitizeStorageFileName(originalName)
-    const storagePath = buildDocumentStoragePath(tenantId, employeeId, safeName)
-    const description =
-      typeof body.description === 'string' && body.description.trim().length > 0
-        ? body.description.trim()
-        : null
-    const categoryRaw =
-      typeof body.category === 'string' && body.category.trim().length > 0 ? body.category.trim() : null
-    if (categoryRaw) {
-      const categoryCheck = DocumentCategoryEnum.safeParse(categoryRaw)
-      if (!categoryCheck.success) return c.json({ error: 'Invalid category value' }, 400)
-    }
-    const category = categoryRaw ?? null
-    let expiryDate: string | null = null
-    if (typeof body.expiry_date === 'string' && body.expiry_date.trim().length > 0) {
-      const trimmed = body.expiry_date.trim()
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return c.json({ error: 'Invalid expiry_date format (YYYY-MM-DD)' }, 400)
-      expiryDate = trimmed
+    let metadata: ReturnType<typeof parseDocumentMetadata>
+    try {
+      metadata = parseDocumentMetadata(body)
+    } catch (error) {
+      if (error instanceof EmployeeDocumentUploadError) {
+        return c.json({ error: error.message }, error.status)
+      }
+      return c.json({ error: 'Invalid metadata' }, 400)
     }
 
-    const latestVersion = await supabase
-      .from('employee_documents')
-      .select('id, version')
-      .eq('tenant_id', tenantId)
-      .eq('employee_id', employeeId)
-      .eq('file_name', safeName)
-      .eq('is_current', true)
-      .maybeSingle()
-    if (latestVersion.error) return c.json({ error: latestVersion.error.message }, 400)
-
-    const nextVersion = latestVersion.data ? (latestVersion.data.version ?? 1) + 1 : 1
-    const previousVersionId = latestVersion.data?.id ?? null
-
-    const upload = await supabaseAdmin.storage
-      .from(DOCUMENT_BUCKET)
-      .upload(storagePath, file, {
-        upsert: false,
-        contentType: file.type || 'application/octet-stream',
-      })
-    if (upload.error) return c.json({ error: upload.error.message }, 400)
-
-    const insertPayload: Database['public']['Tables']['employee_documents']['Insert'] = {
-      tenant_id: tenantId,
-      employee_id: employeeId,
-      storage_path: storagePath,
-      file_name: safeName,
-      mime_type: file.type || 'application/octet-stream',
-      file_size: file.size,
-      uploaded_by: user.id,
-      description,
-      version: nextVersion,
-      previous_version_id: previousVersionId,
-      is_current: true,
-      category,
-      expiry_date: expiryDate,
-    }
-
-    const inserted = await supabase
-      .from('employee_documents')
-      .insert(insertPayload)
-      .select(
-        'id, tenant_id, employee_id, storage_path, file_name, mime_type, file_size, uploaded_by, uploaded_at, description, version, previous_version_id, is_current, category, expiry_date, updated_at',
-      )
-      .single()
-
-    if (inserted.error || !inserted.data) {
-      await supabaseAdmin.storage.from(DOCUMENT_BUCKET).remove([storagePath]).catch(() => undefined)
-      return c.json({ error: inserted.error?.message ?? 'Unable to save document metadata' }, 400)
-    }
-
-    if (previousVersionId) {
-      await supabase
-        .from('employee_documents')
-        .update({ is_current: false, updated_at: new Date().toISOString() })
-        .eq('tenant_id', tenantId)
-        .eq('employee_id', employeeId)
-        .eq('id', previousVersionId)
-    }
-
-    const parsed = EmployeeDocumentSchema.safeParse(inserted.data)
-    if (!parsed.success) return c.json({ error: 'Unexpected response shape' }, 500)
     const { ipAddress, userAgent } = extractRequestInfo(c.req)
-    const auditLogger = new AuditLogger(supabase)
-    await auditLogger.logDocumentAction(
-      tenantId,
-      employeeId,
-      user.id,
-      'document_added',
-      parsed.data,
-      ipAddress,
-      userAgent,
-    )
-    return c.json(parsed.data, 201)
+
+    try {
+      const document = await saveEmployeeDocument({
+        supabase,
+        tenantId,
+        employeeId,
+        file,
+        uploadedBy: user.id,
+        description: metadata.description,
+        category: metadata.category,
+        expiryDate: metadata.expiryDate,
+        ipAddress,
+        userAgent,
+      })
+      return c.json(document, 201)
+    } catch (error) {
+      if (error instanceof EmployeeDocumentUploadError) {
+        return c.json({ error: error.message }, error.status)
+      }
+      return c.json({ error: 'Unable to upload document' }, 400)
+    }
   })
 
   // Download a document via signed URL (redirect)
@@ -478,6 +571,145 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     return c.json({ ok: true })
   })
 
+  app.get('/api/employees/:tenantId/:id/notes', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const tenantId = c.req.param('tenantId')
+    const employeeId = c.req.param('id')
+
+    const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.documents.read', tenant: tenantId })
+    if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+    if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+    const notes = await supabase
+      .from('employee_notes')
+      .select('id, tenant_id, employee_id, body, created_by, created_at, updated_at')
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .order('created_at', { ascending: false })
+
+    if (notes.error) return c.json({ error: notes.error.message }, 400)
+    const parsed = EmployeeNoteSchema.array().safeParse(notes.data ?? [])
+    if (!parsed.success) return c.json({ error: 'Unexpected response shape' }, 500)
+    return c.json({ notes: parsed.data })
+  })
+
+  app.post('/api/employees/:tenantId/:id/notes', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const tenantId = c.req.param('tenantId')
+    const employeeId = c.req.param('id')
+    const user = c.get('user') as User
+
+    const canWrite = await supabase.rpc('app_has_permission', { permission: 'employees.documents.write', tenant: tenantId })
+    if (canWrite.error) return c.json({ error: canWrite.error.message }, 400)
+    if (!canWrite.data) return c.json({ error: 'Forbidden' }, 403)
+
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = EmployeeNoteCreateSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+    }
+
+    const normalizedBody = parsed.data.body.trim()
+    if (!normalizedBody) {
+      return c.json({ error: 'Note cannot be empty' }, 400)
+    }
+
+    const inserted = await supabase
+      .from('employee_notes')
+      .insert({
+        tenant_id: tenantId,
+        employee_id: employeeId,
+        body: normalizedBody,
+        created_by: user.id,
+      })
+      .select('id, tenant_id, employee_id, body, created_by, created_at, updated_at')
+      .single()
+
+    if (inserted.error || !inserted.data) {
+      return c.json({ error: inserted.error?.message ?? 'Unable to save note' }, 400)
+    }
+
+    const parsedNote = EmployeeNoteSchema.safeParse(inserted.data)
+    if (!parsedNote.success) return c.json({ error: 'Unexpected response shape' }, 500)
+    return c.json(parsedNote.data, 201)
+  })
+
+  app.put('/api/employees/:tenantId/:id/notes/:noteId', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const tenantId = c.req.param('tenantId')
+    const employeeId = c.req.param('id')
+    const noteId = c.req.param('noteId')
+
+    const canWrite = await supabase.rpc('app_has_permission', { permission: 'employees.documents.write', tenant: tenantId })
+    if (canWrite.error) return c.json({ error: canWrite.error.message }, 400)
+    if (!canWrite.data) return c.json({ error: 'Forbidden' }, 403)
+
+    const existing = await supabase
+      .from('employee_notes')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .eq('id', noteId)
+      .maybeSingle()
+    if (existing.error) return c.json({ error: existing.error.message }, 400)
+    if (!existing.data) return c.json({ error: 'Note not found' }, 404)
+
+    const payload = await c.req.json().catch(() => ({}))
+    const parsed = EmployeeNoteUpdateSchema.safeParse(payload)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+    }
+
+    const normalizedBody = parsed.data.body.trim()
+    if (!normalizedBody) return c.json({ error: 'Note cannot be empty' }, 400)
+
+    const updated = await supabase
+      .from('employee_notes')
+      .update({ body: normalizedBody, updated_at: new Date().toISOString() })
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .eq('id', noteId)
+      .select('id, tenant_id, employee_id, body, created_by, created_at, updated_at')
+      .maybeSingle()
+    if (updated.error) return c.json({ error: updated.error.message }, 400)
+    if (!updated.data) return c.json({ error: 'Unable to update note' }, 400)
+
+    const parsedNote = EmployeeNoteSchema.safeParse(updated.data)
+    if (!parsedNote.success) return c.json({ error: 'Unexpected response shape' }, 500)
+    return c.json(parsedNote.data)
+  })
+
+  app.delete('/api/employees/:tenantId/:id/notes/:noteId', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const tenantId = c.req.param('tenantId')
+    const employeeId = c.req.param('id')
+    const noteId = c.req.param('noteId')
+
+    const canWrite = await supabase.rpc('app_has_permission', { permission: 'employees.documents.write', tenant: tenantId })
+    if (canWrite.error) return c.json({ error: canWrite.error.message }, 400)
+    if (!canWrite.data) return c.json({ error: 'Forbidden' }, 403)
+
+    const existing = await supabase
+      .from('employee_notes')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .eq('id', noteId)
+      .maybeSingle()
+    if (existing.error) return c.json({ error: existing.error.message }, 400)
+    if (!existing.data) return c.json({ error: 'Note not found' }, 404)
+
+    const deleted = await supabase
+      .from('employee_notes')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .eq('id', noteId)
+    if (deleted.error) return c.json({ error: deleted.error.message }, 400)
+
+    return c.json({ ok: true })
+  })
+
   app.get('/api/employees/:tenantId', async (c) => {
     const supabase = c.get('supabase') as SupabaseClient<Database>
     const tenantId = c.req.param('tenantId')
@@ -515,7 +747,7 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
 
     let query = supabase
-      .from('employees')
+      .from('employees_public')
       .select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
 
@@ -815,6 +1047,12 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     )
 
     // Trigger onboarding workflows
+    console.log('[EMPLOYEE] Employee created, triggering workflows:', {
+      employeeId: ins.data.id,
+      tenantId,
+      name: parsed.data.name,
+      email: parsed.data.email,
+    })
     try {
       const workflowEngine = new WorkflowEngine(supabase)
       await workflowEngine.handleTrigger({
@@ -827,9 +1065,15 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
           created_by: user.id,
         },
       })
+      console.log('[EMPLOYEE] Workflow trigger completed successfully:', {
+        employeeId: ins.data.id,
+      })
     } catch (error) {
       // Log but don't fail the employee creation if workflow trigger fails
-      console.error('Failed to trigger onboarding workflows:', error)
+      console.error('[EMPLOYEE] Failed to trigger onboarding workflows:', {
+        employeeId: ins.data.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     return c.redirect(`/api/employees/${tenantId}`)
@@ -1728,6 +1972,207 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     return c.json({ ok: true })
   })
 
+  // ---------------- Organizational Structure endpoints ----------------
+
+  // Get complete organizational structure
+  app.get('/api/org-structure/:tenantId', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const tenantId = c.req.param('tenantId')
+
+    const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.read', tenant: tenantId })
+    if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+    if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+    // Get all active employees with their org structure data
+    const orgData = await supabase
+      .from('org_structure_view')
+      .select('*')
+      .eq('tenant_id', tenantId)
+
+    if (orgData.error) return c.json({ error: orgData.error.message }, 400)
+
+    // Transform the view data into nodes
+    const nodes = (orgData.data || []).map((row: any) => {
+      // Get direct reports for this employee
+      const directReports = (orgData.data || [])
+        .filter((r: any) => r.manager_id === row.employee_id)
+        .map((r: any) => r.employee_id)
+
+      return {
+        employee_id: row.employee_id,
+        tenant_id: row.tenant_id,
+        employee_name: row.employee_name,
+        email: row.email,
+        job_title: row.job_title,
+        employee_number: row.employee_number,
+        status: row.status,
+        manager_id: row.manager_id,
+        dotted_line_manager_id: row.dotted_line_manager_id,
+        department_id: row.department_id,
+        department_name: row.department_name,
+        office_location_id: row.office_location_id,
+        location_name: row.location_name,
+        manager_name: row.manager_name,
+        manager_email: row.manager_email,
+        dotted_line_manager_name: row.dotted_line_manager_name,
+        dotted_line_manager_email: row.dotted_line_manager_email,
+        teams: row.teams || [],
+        direct_reports: directReports,
+      }
+    })
+
+    // Get departments and locations for context
+    const [departments, locations] = await Promise.all([
+      supabase
+        .from('departments')
+        .select('*')
+        .eq('tenant_id', tenantId),
+      supabase
+        .from('office_locations')
+        .select('*')
+        .eq('tenant_id', tenantId),
+    ])
+
+    if (departments.error) return c.json({ error: departments.error.message }, 400)
+    if (locations.error) return c.json({ error: locations.error.message }, 400)
+
+    const response = OrgStructureResponseSchema.parse({
+      nodes,
+      departments: departments.data || [],
+      locations: locations.data || [],
+    })
+
+    return c.json(response)
+  })
+
+  // Get organizational hierarchy tree (optimized for org chart)
+  app.get('/api/org-structure/:tenantId/hierarchy', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const tenantId = c.req.param('tenantId')
+
+    const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.read', tenant: tenantId })
+    if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+    if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+    // Get all active employees
+    const employees = await supabase
+      .from('employees')
+      .select('id, name, email, job_title, manager_id, department_id')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+
+    if (employees.error) return c.json({ error: employees.error.message }, 400)
+
+    // Get department names
+    const departments = await supabase
+      .from('departments')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+
+    if (departments.error) return c.json({ error: departments.error.message }, 400)
+
+    const deptMap = new Map((departments.data || []).map((d: any) => [d.id, d.name]))
+
+    // Build hierarchy tree
+    const employeeMap = new Map()
+    const rootNodes: any[] = []
+
+    // First pass: create all nodes
+    ;(employees.data || []).forEach((emp: any) => {
+      const node = {
+        id: emp.id,
+        name: emp.name,
+        job_title: emp.job_title,
+        email: emp.email,
+        department_name: emp.department_id ? deptMap.get(emp.department_id) : null,
+        children: [] as any[],
+      }
+      employeeMap.set(emp.id, node)
+    })
+
+    // Second pass: build tree structure
+    ;(employees.data || []).forEach((emp: any) => {
+      const node = employeeMap.get(emp.id)
+      if (emp.manager_id && employeeMap.has(emp.manager_id)) {
+        const parent = employeeMap.get(emp.manager_id)
+        parent.children.push(node)
+      } else {
+        rootNodes.push(node)
+      }
+    })
+
+    const response = OrgHierarchyResponseSchema.parse({
+      root: rootNodes.length === 1 ? rootNodes[0] : rootNodes.length > 1 ? {
+        id: 'root',
+        name: 'Organization',
+        job_title: null,
+        email: '',
+        department_name: null,
+        children: rootNodes,
+      } : null,
+    })
+
+    return c.json(response)
+  })
+
+  // Get reporting lines (direct and dotted-line)
+  app.get('/api/org-structure/:tenantId/reporting-lines', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const tenantId = c.req.param('tenantId')
+
+    const canRead = await supabase.rpc('app_has_permission', { permission: 'employees.read', tenant: tenantId })
+    if (canRead.error) return c.json({ error: canRead.error.message }, 400)
+    if (!canRead.data) return c.json({ error: 'Forbidden' }, 403)
+
+    // Get employees with their managers
+    const employees = await supabase
+      .from('employees')
+      .select('id, manager_id, dotted_line_manager_id')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+
+    if (employees.error) return c.json({ error: employees.error.message }, 400)
+
+    // Get all manager IDs that we need to look up
+    const managerIds = new Set<string>()
+    const dottedLineManagerIds = new Set<string>()
+    ;(employees.data || []).forEach((emp: any) => {
+      if (emp.manager_id) managerIds.add(emp.manager_id)
+      if (emp.dotted_line_manager_id) dottedLineManagerIds.add(emp.dotted_line_manager_id)
+    })
+
+    // Fetch manager names
+    const allManagerIds = Array.from(new Set([...managerIds, ...dottedLineManagerIds]))
+    const managerNames = new Map<string, string>()
+    
+    if (allManagerIds.length > 0) {
+      const managers = await supabase
+        .from('employees')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .in('id', allManagerIds)
+      
+      if (managers.error) return c.json({ error: managers.error.message }, 400)
+      ;(managers.data || []).forEach((m: any) => {
+        managerNames.set(m.id, m.name)
+      })
+    }
+
+    const reportingLines = (employees.data || []).map((emp: any) => ({
+      employee_id: emp.id,
+      manager_id: emp.manager_id,
+      dotted_line_manager_id: emp.dotted_line_manager_id,
+      manager_name: emp.manager_id ? managerNames.get(emp.manager_id) || null : null,
+      dotted_line_manager_name: emp.dotted_line_manager_id ? managerNames.get(emp.dotted_line_manager_id) || null : null,
+    }))
+
+    const response = ReportingLinesResponseSchema.parse({
+      reporting_lines: reportingLines,
+    })
+
+    return c.json(response)
+  })
+
   // ---------------- Employee Audit Log endpoints ----------------
 
   // Get employee audit log
@@ -1796,6 +2241,223 @@ export const registerEmployeeRoutes = (app: Hono<Env>) => {
     return c.json(EmployeeAuditLogSchema.parse(auditEntry.data))
   })
 
+  // Self-service profile endpoints
+  app.get('/api/self-service/profile', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const user = c.get('user') as User
+
+    let tenantId: string
+    try {
+      tenantId = await getPrimaryTenantId(supabase)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+      return c.json({ error: message }, 400)
+    }
+
+    let employee
+    try {
+      employee = await getEmployeeForUser(supabase, tenantId, user)
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to resolve employee context'
+      return c.json({ error: message }, 400)
+    }
+
+    if (!employee) {
+      return c.json({ error: 'Employee record not found for your account' }, 404)
+    }
+
+    try {
+      const payload = await buildSelfServiceProfilePayload({ supabase, tenantId, employee })
+      return c.json(payload)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to load profile'
+      return c.json({ error: message }, 500)
+    }
+  })
+
+  app.post('/api/self-service/profile/draft', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const user = c.get('user') as User
+
+    let tenantId: string
+    try {
+      tenantId = await getPrimaryTenantId(supabase)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+      return c.json({ error: message }, 400)
+    }
+
+    let employee
+    try {
+      employee = await getEmployeeForUser(supabase, tenantId, user)
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to resolve employee context'
+      return c.json({ error: message }, 400)
+    }
+
+    if (!employee) {
+      return c.json({ error: 'Employee record not found for your account' }, 404)
+    }
+
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = SelfServiceDraftInputParser.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+    }
+
+    try {
+      await assertNoPendingProfileRequest(supabase, tenantId, employee.id)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to load profile request'
+      return c.json({ error: message }, 409)
+    }
+
+    const snapshot = extractEmployeeSelfServiceFields(employee)
+    try {
+      await upsertProfileDraft({
+        supabase,
+        tenantId,
+        employeeId: employee.id,
+        userId: user.id,
+        fields: parsed.data.fields,
+        justification: parsed.data.justification ?? null,
+        snapshot,
+      })
+      const payload = await buildSelfServiceProfilePayload({ supabase, tenantId, employee })
+      return c.json(payload, 200)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to save draft'
+      return c.json({ error: message }, 400)
+    }
+  })
+
+  app.post('/api/self-service/profile/submit', async (c) => {
+    const supabase = c.get('supabase') as SupabaseClient<Database>
+    const user = c.get('user') as User
+
+    let tenantId: string
+    try {
+      tenantId = await getPrimaryTenantId(supabase)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to resolve tenant'
+      return c.json({ error: message }, 400)
+    }
+
+    let employee
+    try {
+      employee = await getEmployeeForUser(supabase, tenantId, user)
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to resolve employee context'
+      return c.json({ error: message }, 400)
+    }
+
+    if (!employee) {
+      return c.json({ error: 'Employee record not found for your account' }, 404)
+    }
+
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = SelfServiceDraftInputParser.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+    }
+
+    const requestedFields = parsed.data.fields
+    const snapshot = extractEmployeeSelfServiceFields(employee)
+    const diff = buildDiff(snapshot, requestedFields)
+    if (Object.keys(diff).length === 0) {
+      return c.json({ error: 'No changes detected to submit for approval.' }, 400)
+    }
+
+    try {
+      await assertNoPendingProfileRequest(supabase, tenantId, employee.id)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to submit request'
+      return c.json({ error: message }, 409)
+    }
+
+    let draftRecord
+    try {
+      draftRecord = await upsertProfileDraft({
+        supabase,
+        tenantId,
+        employeeId: employee.id,
+        userId: user.id,
+        fields: requestedFields,
+        justification: parsed.data.justification ?? null,
+        snapshot,
+      })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to save draft'
+      return c.json({ error: message }, 400)
+    }
+
+    const justification =
+      parsed.data.justification && parsed.data.justification.length >= 5
+        ? parsed.data.justification
+        : 'Employee requested updates to personal contact information.'
+
+    const summaryFields = Object.keys(diff)
+      .map((key) => key.replace(/_/g, ' '))
+      .join(', ')
+
+    const approvalInsert = await supabase
+      .from('approval_requests')
+      .insert({
+        tenant_id: tenantId,
+        category: 'profile_change',
+        title: `Profile update request – ${employee.name}`,
+        summary: summaryFields.length ? `Fields changed: ${summaryFields}` : null,
+        justification,
+        details: {
+          employeeName: employee.name,
+          employeeId: employee.id,
+          updatedFields: requestedFields,
+          previousFields: snapshot,
+        },
+        attachments: [],
+        requested_by_user_id: user.id,
+        requested_by_employee_id: employee.id,
+        status: 'pending',
+      })
+      .select('id')
+      .single()
+
+    if (approvalInsert.error || !approvalInsert.data) {
+      return c.json(
+        { error: approvalInsert.error?.message ?? 'Unable to create approval request' },
+        400,
+      )
+    }
+
+    const updateRequest = await supabase
+      .from('employee_profile_change_requests')
+      .update({
+        status: 'pending',
+        approval_request_id: approvalInsert.data.id,
+        submitted_at: new Date().toISOString(),
+        justification,
+        current_snapshot: snapshot,
+        fields: requestedFields,
+      })
+      .eq('id', draftRecord.id)
+      .select('*')
+      .single()
+
+    if (updateRequest.error) {
+      return c.json({ error: updateRequest.error.message }, 400)
+    }
+
+    try {
+      const payload = await buildSelfServiceProfilePayload({ supabase, tenantId, employee })
+      return c.json(payload, 201)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to load profile'
+      return c.json({ error: message }, 500)
+    }
+  })
 }
 
 type DeleteEmployeeCleanupParams = {
@@ -1849,6 +2511,15 @@ async function deleteEmployeeWithCleanup({
           console.error('Failed to remove employee document files:', error)
         })
     }
+  }
+
+  const noteDelete = await supabase
+    .from('employee_notes')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('employee_id', employeeId)
+  if (noteDelete.error) {
+    return { error: noteDelete.error.message }
   }
 
   const employeeDelete = await supabase

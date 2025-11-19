@@ -4,7 +4,7 @@ import type { Hono } from 'hono'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import type { User } from '../../types'
-import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages'
+import { AIMessage, type BaseMessage } from '@langchain/core/messages'
 
 import type { Database } from '@database.types.ts'
 import { getPrimaryTenantId } from '../../lib/tenant-context'
@@ -16,7 +16,13 @@ import {
   type ChatMessage,
   type MessageContent,
 } from '@vibe/shared'
-import { createEmployeeTool } from './tools/employees'
+import {
+  createLeaveAgentTool,
+  createEmployeeAgentTool,
+  createTimeAgentTool,
+  createPerformanceAgentTool,
+  createOnboardingAgentTool,
+} from './tools/agent-tools'
 import {
   createConversation,
   getConversation,
@@ -25,6 +31,15 @@ import {
   saveMessage,
   type ConversationWithMessages,
 } from './service'
+import type { ToolCallLogEntry } from './types'
+import type { AgentRuntimeContext } from './context'
+import { attachToolLogging } from './utils/tool-logging'
+import {
+  convertChatMessagesToAgentState,
+  extractMessageText,
+  findLatestAIMessage,
+  normalizeUsageMetadata,
+} from './utils/messages'
 
 export const registerChatRoutes = (app: Hono<Env>) => {
   // GET /api/chat/:conversationId - Get conversation with all messages
@@ -272,7 +287,15 @@ export const registerChatRoutes = (app: Hono<Env>) => {
   })
 }
 
-const AGENT_SYSTEM_PROMPT = 'You are a helpful HR assistant. You can help users query employee information. Always be respectful and professional.'
+const AGENT_SYSTEM_PROMPT = `You are a helpful HR assistant that routes questions to specialized sub-agents.
+Available sub-agents:
+- leave_management_agent: Use for questions about vacation days, leave balances, time-off requests, leave calendars
+- employee_management_agent: Use for questions about employees, finding people, employee details, organizational structure
+- time_management_agent: Use for questions about timesheets, clocking in/out, weekly hour summaries, or specific time entries
+- performance_management_agent: Use for questions about goals, check-ins, team performance, or progress tracking
+- onboarding_preparation_agent: Use for generating sample employees, demo data, or seeding approval requests for testing
+Analyze the user's question and delegate to the appropriate specialized agent. If a question spans multiple domains, call multiple agents and synthesize the results.
+Always be respectful and professional.`
 
 /**
  * Process chat message with LangChain agent
@@ -299,16 +322,7 @@ async function processChatMessage({
     completion_tokens?: number
     total_tokens?: number
   }
-  toolCalls: Array<{
-    tool_name: string
-    input: unknown
-    result?: {
-      ok: boolean
-      output?: unknown
-      error?: string
-      latency_ms?: number
-    }
-  }>
+  toolCalls: ToolCallLogEntry[]
 }> {
   // Initialize LLM
   const model = new ChatOpenAI({
@@ -317,35 +331,32 @@ async function processChatMessage({
     openAIApiKey: apiKey,
   })
 
-  const toolCalls: Array<{
-    tool_name: string
-    input: unknown
-    result?: {
-      ok: boolean
-      output?: unknown
-      error?: string
-      latency_ms?: number
-    }
-  }> = []
+  const toolCalls: ToolCallLogEntry[] = []
 
-  // Create tools with user context and instrument to capture tool calls
-  const employeeTool = attachToolLogging(createEmployeeTool({
+  const agentContext: AgentRuntimeContext = {
     supabase,
     userToken,
     apiBaseUrl,
-  }), toolCalls)
+    apiKey,
+    toolCalls,
+  }
+
+  // Create tools with user context and instrument to capture tool calls
+  const leaveAgentTool = attachToolLogging(createLeaveAgentTool(agentContext), toolCalls)
+  const employeeAgentTool = attachToolLogging(createEmployeeAgentTool(agentContext), toolCalls)
+  const timeAgentTool = attachToolLogging(createTimeAgentTool(agentContext), toolCalls)
+  const performanceAgentTool = attachToolLogging(createPerformanceAgentTool(agentContext), toolCalls)
+  const onboardingAgentTool = attachToolLogging(createOnboardingAgentTool(agentContext), toolCalls)
 
   const agent = createAgent({
     model,
-    tools: [employeeTool],
+    tools: [leaveAgentTool, employeeAgentTool, timeAgentTool, performanceAgentTool, onboardingAgentTool],
     systemPrompt: AGENT_SYSTEM_PROMPT,
   })
 
   const agentMessages = convertChatMessagesToAgentState(messages)
   const result = await agent.invoke({ messages: agentMessages })
-  const aiMessage = [...result.messages].reverse().find((message) => {
-    return typeof (message as BaseMessage)._getType === 'function' && (message as BaseMessage)._getType() === 'ai'
-  }) as BaseMessage | undefined
+  const aiMessage = findLatestAIMessage(result.messages as BaseMessage[])
   const responseText = extractMessageText(aiMessage)
 
   if (!responseText) {
@@ -360,115 +371,5 @@ async function processChatMessage({
     response: responseText,
     usage,
     toolCalls,
-  }
-}
-
-function convertChatMessagesToAgentState(messages: ChatMessage[]): BaseMessage[] {
-  return messages.map((msg) => {
-    switch (msg.role) {
-      case 'assistant':
-        return new AIMessage(msg.content)
-      case 'system':
-        return new SystemMessage(msg.content)
-      default:
-        return new HumanMessage(msg.content)
-    }
-  })
-}
-
-function extractMessageText(message?: BaseMessage): string {
-  if (!message) {
-    return ''
-  }
-
-  const { content } = message
-  if (typeof content === 'string') {
-    return content
-  }
-
-  if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (typeof part === 'string') {
-        return part
-      }
-      if (typeof (part as { text?: string }).text === 'string') {
-        return (part as { text?: string }).text as string
-      }
-      return ''
-    }).join('\n').trim()
-  }
-
-  return ''
-}
-
-function normalizeUsageMetadata(metadata?: AIMessage['usage_metadata']) {
-  if (!metadata) {
-    return undefined
-  }
-
-  return {
-    prompt_tokens: metadata.input_tokens,
-    completion_tokens: metadata.output_tokens,
-    total_tokens: metadata.total_tokens,
-  }
-}
-
-function attachToolLogging(
-  tool: ReturnType<typeof createEmployeeTool>,
-  toolCalls: Array<{
-    tool_name: string
-    input: unknown
-    result?: {
-      ok: boolean
-      output?: unknown
-      error?: string
-      latency_ms?: number
-    }
-  }>,
-) {
-  const originalFunc = tool.func.bind(tool)
-
-  tool.func = async (input) => {
-    const start = Date.now()
-    try {
-      const output = await originalFunc(input)
-
-      toolCalls.push({
-        tool_name: tool.name,
-        input,
-        result: {
-          ok: true,
-          output: parseToolOutput(output),
-          latency_ms: Date.now() - start,
-        },
-      })
-
-      return output
-    } catch (error) {
-      toolCalls.push({
-        tool_name: tool.name,
-        input,
-        result: {
-          ok: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          latency_ms: Date.now() - start,
-        },
-      })
-      throw error
-    }
-  }
-
-  return tool
-}
-
-function parseToolOutput(output: unknown): unknown {
-  if (typeof output !== 'string') {
-    return output
-  }
-
-  try {
-    return JSON.parse(output)
-  } catch {
-    return output
   }
 }

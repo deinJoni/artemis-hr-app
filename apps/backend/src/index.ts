@@ -13,13 +13,16 @@ import { registerLeaveAnalyticsRoutes } from './routes/leave-analytics'
 import { registerPerformanceRoutes } from './routes/performance'
 import { registerTimeManagementRoutes } from './routes/time-management'
 import { registerOnboardingRoutes } from './routes/onboarding'
+import { registerOnboardingSampleRoutes } from './features/onboarding/router'
 import { registerOffboardingRoutes } from './routes/offboarding'
 import { registerEquipmentRoutes } from './routes/equipment'
 import { registerAccessRoutes } from './routes/access'
 import { registerRecruitingRoutes } from './routes/recruiting'
 import { registerFeatureRoutes } from './routes/features'
 import { registerApprovalRoutes } from './routes/approvals'
+import { registerTaskRoutes } from './routes/tasks'
 import { registerChatRoutes } from './features/chat/router'
+import { registerNewsRoutes } from './routes/news'
 import { corsMiddleware } from './middleware/cors'
 
 const app = new Hono<Env>()
@@ -43,6 +46,7 @@ registerPerformanceRoutes(app)
 registerTimeManagementRoutes(app)
 registerLeaveAnalyticsRoutes(app)
 registerOnboardingRoutes(app)
+registerOnboardingSampleRoutes(app)
 registerOffboardingRoutes(app)
 registerEquipmentRoutes(app)
 registerAccessRoutes(app)
@@ -50,6 +54,8 @@ registerRecruitingRoutes(app)
 registerFeatureRoutes(app)
 registerApprovalRoutes(app)
 registerChatRoutes(app)
+registerTaskRoutes(app)
+registerNewsRoutes(app)
 
 // Catch-all 404 handler for debugging
 app.notFound((c) => {

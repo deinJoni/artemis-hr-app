@@ -1,8 +1,9 @@
 import * as React from "react";
 import type { Route } from "./+types/dashboard";
-import { BarChart3, BriefcaseBusiness, CalendarDays, UserPlus, Clock, Zap } from "lucide-react";
+import { BarChart3, BriefcaseBusiness, CalendarDays, UserPlus, Clock, Zap, Megaphone, Loader2 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Badge } from "~/components/ui/badge";
 import { Link, useNavigate } from "react-router";
 import { useTheme } from "~/hooks/use-theme";
 import { APP_THEME_OPTIONS } from "~/lib/theme-options";
@@ -28,6 +29,8 @@ import {
   DashboardThemeSelector,
 } from "~/features/dashboard/components/dashboard-states";
 import { useTranslation } from "~/lib/i18n";
+import { useFeatureFlag } from "~/lib/feature-flags";
+import type { CompanyNews } from "@vibe/shared";
 
 const THEME_MENU_OPTIONS: string[] = ["system", ...APP_THEME_OPTIONS];
 
@@ -66,11 +69,12 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
     navigate,
     session,
   });
+  const tenantId = tenant?.id ?? null;
   const { employees, dataError } = useDashboardEmployees({
     apiBaseUrl,
     navigate,
     session,
-    tenantId: tenant?.id,
+    tenantId: tenantId ?? undefined,
   });
   const { isClockedIn, setIsClockedIn } = useClockStatus({
     apiBaseUrl,
@@ -81,6 +85,10 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
   const [requestOpen, setRequestOpen] = React.useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = React.useState(false);
   const [timeEntryOpen, setTimeEntryOpen] = React.useState(false);
+  const companyNewsEnabled = useFeatureFlag("company_news", true);
+  const [latestNews, setLatestNews] = React.useState<CompanyNews[]>([]);
+  const [newsLoading, setNewsLoading] = React.useState(false);
+  const [newsError, setNewsError] = React.useState<string | null>(null);
 
   // Keyboard shortcut for Quick Actions (Cmd+K)
   useKeyboardShortcuts({
@@ -95,6 +103,56 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
       },
     ],
   });
+
+  React.useEffect(() => {
+    if (!session?.access_token || !tenantId || !companyNewsEnabled) {
+      if (!companyNewsEnabled) {
+        setLatestNews([]);
+        setNewsError(null);
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadLatestNews() {
+      if (!session?.access_token) return;
+      setNewsLoading(true);
+      setNewsError(null);
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/news/latest?tenantId=${tenantId}&limit=3`,
+          {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message =
+            (typeof payload?.error === "string" && payload.error) ||
+            t("dashboard.newsError");
+          throw new Error(message);
+        }
+        if (!cancelled) {
+          setLatestNews(Array.isArray(payload.news) ? (payload.news as CompanyNews[]) : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setNewsError(error instanceof Error ? error.message : t("dashboard.newsError"));
+        }
+      } finally {
+        if (!cancelled) {
+          setNewsLoading(false);
+        }
+      }
+    }
+
+    void loadLatestNews();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, companyNewsEnabled, session?.access_token, t, tenantId]);
 
   const handleClockInOut = React.useCallback(async () => {
     if (!session) return;
@@ -163,6 +221,11 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
       })
       .join(" ");
   }, [headcountTrend]);
+
+  const getCategoryLabel = React.useCallback(
+    (category: string) => t(`news.categories.${category}`),
+    [t]
+  );
 
   if (checking || !session) {
     return (
@@ -300,6 +363,53 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         <BentoCard>
           <PendingApprovalsWidget />
         </BentoCard>
+
+        {companyNewsEnabled ? (
+          <BentoCard span={2} className="lg:col-span-2">
+            <CardHeader className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Megaphone className="h-5 w-5 text-primary" />
+                  {t("dashboard.latestNewsTitle")}
+                </CardTitle>
+                <CardDescription>{t("dashboard.latestNewsDescription")}</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/news">{t("dashboard.viewAllNews")}</Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {newsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t("dashboard.newsLoading")}
+                </div>
+              ) : newsError ? (
+                <p className="text-sm text-destructive">{newsError}</p>
+              ) : latestNews.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("dashboard.newsEmpty")}</p>
+              ) : (
+                <ul className="space-y-4 text-sm">
+                  {latestNews.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex flex-col gap-2 border-b border-border/60 pb-4 last:border-none last:pb-0"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span>{item.publish_at ? new Date(item.publish_at).toLocaleString() : ""}</span>
+                        <Badge variant="outline">{getCategoryLabel(item.category)}</Badge>
+                      </div>
+                      <p className="text-base font-semibold leading-tight text-foreground">{item.title}</p>
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {item.summary || item.body}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </BentoCard>
+        ) : null}
 
         <BentoCard className="group relative overflow-hidden">
           <CardHeader className="space-y-1 pb-4">

@@ -29,6 +29,7 @@ Artemis is a workforce experience sandbox that brings onboarding, people operati
 - Workflow builder and goal-setting experiences powered by shared schemas to stay type-safe.
 - Auth, session persistence, and API calls wired to Supabase with graceful fallback states.
 - Unified approvals hub that surfaces leave, time, equipment, training, and compensation workflows with inline decision dialogs.
+- Company news hub for creating, scheduling, and publishing announcements with dashboard visibility (feature flagged).
 
 ### Backend (`apps/backend`)
 - Zero-trust Supabase JWT verification, per-request user clients, and tenant-aware authorization helpers.
@@ -45,6 +46,7 @@ Artemis is a workforce experience sandbox that brings onboarding, people operati
 - **Team Calendar & Reporting**: Manager dashboard with team calendar views, time summaries, and CSV export capabilities.
 - **Leave & Absence Management**: Complete leave management system with configurable leave types, balance tracking, holiday calendars, and multi-level approval workflows.
 - **Cross-Functional Approvals**: Equipment, training, and salary change APIs with shared schemas, audit-ready decision logging, and Supabase-backed permissions.
+- **Company News API**: Tenant-scoped news, mitteilung, and announcement CRUD with publish/unpublish flows and audit history.
 - Workflow drafting, publishing, and retrieval backed by shared validation schemas.
 
 ### Shared Library (`packages/shared`)
@@ -139,6 +141,7 @@ Artemis is a workforce experience sandbox that brings onboarding, people operati
 
 ### Workflows & Automation
 - Status: ✅ Workflows list loads with feature gating and documentation matches the live UI.
+- ✅ Dedicated `/tasks` hub lists onboarding/offboarding checklists, supports document uploads & form submissions, and calls the new tenant-wide task APIs.
 - Gap: ⏳ Builder interactions, journey publishing, and automation triggers remain unverified.
 - Impact: Users cannot trust automation until drag-and-drop and execution paths receive coverage.
 - Next: Script builder E2E coverage and add lower-level service tests before expanding workflows.

@@ -199,7 +199,7 @@ export async function getWorkflowDetail(
   const { data, error } = await supabase
     .from('workflows')
     .select(
-      '*, workflow_versions(id, version_number, is_active, definition, published_at, created_at)',
+      '*, workflow_versions:workflow_versions!workflow_versions_workflow_id_fkey(id, version_number, is_active, definition, published_at, created_at)',
     )
     .eq('tenant_id', tenantId)
     .eq('id', workflowId)
@@ -227,6 +227,14 @@ export async function createWorkflowDraft(
   userId: string,
   input: WorkflowCreateInput,
 ): Promise<WorkflowDetailResponse> {
+  console.log('[WORKFLOW] Creating workflow draft:', {
+    tenantId,
+    userId,
+    name: input.name,
+    kind: input.kind,
+    templateId: input.templateId,
+  })
+
   const slug = await ensureUniqueSlug(supabase, tenantId, input.name)
   const now = new Date().toISOString()
 
@@ -246,8 +254,21 @@ export async function createWorkflowDraft(
     .select('*')
     .maybeSingle()
 
-  if (error) throw new Error(error.message)
-  if (!created) throw new Error('Workflow creation failed')
+  if (error) {
+    console.error('[WORKFLOW] Failed to create workflow:', error)
+    throw new Error(error.message)
+  }
+  if (!created) {
+    console.error('[WORKFLOW] Workflow creation returned no data')
+    throw new Error('Workflow creation failed')
+  }
+
+  console.log('[WORKFLOW] Workflow created:', {
+    workflowId: created.id,
+    name: created.name,
+    slug: created.slug,
+    status: created.status,
+  })
 
   const parsedWorkflow = WorkflowSchema.safeParse(created)
   if (!parsedWorkflow.success) throw new Error('Unexpected workflow shape')
@@ -258,6 +279,21 @@ export async function createWorkflowDraft(
     input.kind,
     input.templateId,
   )
+
+  const hasTriggerNode =
+    definition.nodes?.some((node) => {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) {
+        return false
+      }
+      const typeValue = (node as { type?: unknown }).type
+      return typeValue === 'trigger'
+    }) ?? false
+
+  console.log('[WORKFLOW] Resolved definition:', {
+    workflowId: created.id,
+    nodeCount: definition.nodes?.length || 0,
+    hasTrigger: hasTriggerNode,
+  })
 
   const { data: version, error: versionError } = await supabase
     .from('workflow_versions')
@@ -271,8 +307,21 @@ export async function createWorkflowDraft(
     .select('id, version_number, definition, is_active, created_at, published_at')
     .maybeSingle()
 
-  if (versionError) throw new Error(versionError.message)
-  if (!version) throw new Error('Workflow version creation failed')
+  if (versionError) {
+    console.error('[WORKFLOW] Failed to create workflow version:', versionError)
+    throw new Error(versionError.message)
+  }
+  if (!version) {
+    console.error('[WORKFLOW] Workflow version creation returned no data')
+    throw new Error('Workflow version creation failed')
+  }
+
+  console.log('[WORKFLOW] Workflow version created:', {
+    workflowId: created.id,
+    versionId: version.id,
+    versionNumber: version.version_number,
+    isActive: version.is_active,
+  })
 
   return parseWorkflowDetail({
     workflow: parsedWorkflow.data,
@@ -356,6 +405,12 @@ export async function publishWorkflow(
   workflowId: string,
   userId: string,
 ) {
+  console.log('[WORKFLOW] Publishing workflow:', {
+    tenantId,
+    workflowId,
+    userId,
+  })
+
   const { data: version, error: versionError } = await supabase
     .from('workflow_versions')
     .select('id, version_number, published_at')
@@ -364,8 +419,20 @@ export async function publishWorkflow(
     .limit(1)
     .maybeSingle()
 
-  if (versionError) throw new Error(versionError.message)
-  if (!version) throw new Error('No workflow version to publish')
+  if (versionError) {
+    console.error('[WORKFLOW] Failed to fetch workflow version:', versionError)
+    throw new Error(versionError.message)
+  }
+  if (!version) {
+    console.error('[WORKFLOW] No workflow version found to publish')
+    throw new Error('No workflow version to publish')
+  }
+
+  console.log('[WORKFLOW] Publishing version:', {
+    workflowId,
+    versionId: version.id,
+    versionNumber: version.version_number,
+  })
 
   const now = new Date().toISOString()
   const { error: updateVersionError } = await supabase
@@ -373,7 +440,10 @@ export async function publishWorkflow(
     .update({ is_active: true, published_at: now })
     .eq('id', version.id)
 
-  if (updateVersionError) throw new Error(updateVersionError.message)
+  if (updateVersionError) {
+    console.error('[WORKFLOW] Failed to update workflow version:', updateVersionError)
+    throw new Error(updateVersionError.message)
+  }
 
   const { error: workflowUpdateError } = await supabase
     .from('workflows')
@@ -386,7 +456,16 @@ export async function publishWorkflow(
     .eq('tenant_id', tenantId)
     .eq('id', workflowId)
 
-  if (workflowUpdateError) throw new Error(workflowUpdateError.message)
+  if (workflowUpdateError) {
+    console.error('[WORKFLOW] Failed to update workflow status:', workflowUpdateError)
+    throw new Error(workflowUpdateError.message)
+  }
+
+  console.log('[WORKFLOW] Workflow published successfully:', {
+    workflowId,
+    versionId: version.id,
+    status: 'published',
+  })
 
   return getWorkflowDetail(supabase, tenantId, workflowId)
 }

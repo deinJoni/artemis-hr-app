@@ -12,6 +12,8 @@ import {
 } from '@vibe/shared'
 import { ensurePermission } from '../lib/permissions'
 import { getEmployeeForUser, getPrimaryTenantId } from '../lib/tenant-context'
+import { extractRequestInfo } from '../lib/audit-logger'
+import { updateProfileRequestFromApproval } from '../features/employees/self-service'
 
 export const registerApprovalRoutes = (app: Hono<Env>) => {
   app.get('/api/approvals/requests', async (c) => {
@@ -192,6 +194,7 @@ export const registerApprovalRoutes = (app: Hono<Env>) => {
 
     const newStatus = parsed.data.decision === 'approve' ? 'approved' : 'denied'
     const decisionReason = parsed.data.reason?.trim() || null
+    const { ipAddress, userAgent } = extractRequestInfo(c.req)
 
     const { error } = await supabase
       .from('approval_requests')
@@ -223,6 +226,24 @@ export const registerApprovalRoutes = (app: Hono<Env>) => {
     const payload = ApprovalRequestSchema.safeParse(summary)
     if (!payload.success) {
       return c.json({ error: 'Unexpected response shape' }, 500)
+    }
+
+    if (payload.data.category === 'profile_change') {
+      try {
+        await updateProfileRequestFromApproval({
+          supabase,
+          approvalRequestId: requestId,
+          decision: newStatus,
+          decisionReason,
+          user,
+          ipAddress,
+          userAgent,
+        })
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to update profile change request'
+        return c.json({ error: message }, 400)
+      }
     }
 
     return c.json(payload.data)

@@ -11,6 +11,7 @@ import {
 import { ensurePermission } from '../lib/permissions'
 import { WorkflowEngine } from '../lib/workflow-engine'
 import type { Env } from '../types'
+import { completeWorkflowTask, mapRunStepToTask } from '../features/tasks/task-service'
 
 export const registerOnboardingRoutes = (app: Hono<Env>) => {
   // Get journey by share token
@@ -225,20 +226,9 @@ export const registerOnboardingRoutes = (app: Hono<Env>) => {
       }
 
       // Transform to Task format
-      const tasks: Task[] = (steps || []).map((step: Database['public']['Tables']['workflow_run_steps']['Row']) => ({
-        id: step.id,
-        run_id: step.run_id,
-        node_id: step.node_id,
-        status: step.status as Task['status'],
-        assigned_to: step.assigned_to as Task['assigned_to'],
-        due_at: step.due_at,
-        payload: step.payload as Task['payload'],
-        result: step.result as Task['result'],
-        error: step.error,
-        started_at: step.started_at,
-        completed_at: step.completed_at,
-        updated_at: step.updated_at,
-      }))
+      const tasks: Task[] = (steps || []).map((step: Database['public']['Tables']['workflow_run_steps']['Row']) =>
+        mapRunStepToTask(step),
+      )
 
       const payload = TaskListResponseSchema.safeParse({ tasks })
       if (!payload.success) {
@@ -295,32 +285,29 @@ export const registerOnboardingRoutes = (app: Hono<Env>) => {
     }
 
     try {
-      const now = new Date().toISOString()
-
-      const { error: updateError } = await supabase
-        .from('workflow_run_steps')
-        .update({
-          status: 'completed',
-          result: parsed.data.result as unknown as Json,
-          completed_at: now,
-        })
-        .eq('id', taskId)
-
-      if (updateError) {
-        throw new Error(updateError.message)
+      const resultPayload: Record<string, unknown> = {}
+      const baseResult = parsed.data.result
+      if (baseResult && typeof baseResult === 'object') {
+        Object.assign(resultPayload, baseResult as Record<string, unknown>)
+      } else if (baseResult !== undefined) {
+        resultPayload.data = baseResult
       }
 
-      // Trigger workflow engine to continue
-      const { data: step } = await supabase
-        .from('workflow_run_steps')
-        .select('run_id')
-        .eq('id', taskId)
-        .single()
-
-      if (step) {
-        const engine = new WorkflowEngine(supabase)
-        await engine.checkAndContinueRun(step.run_id)
+      if (parsed.data.notes) {
+        resultPayload.notes = parsed.data.notes
       }
+      if (parsed.data.documentId) {
+        resultPayload.documentId = parsed.data.documentId
+      }
+      if (parsed.data.formResponse) {
+        resultPayload.formResponse = parsed.data.formResponse
+      }
+
+      await completeWorkflowTask({
+        supabase,
+        taskId,
+        result: (Object.keys(resultPayload).length > 0 ? (resultPayload as Json) : (baseResult as Json | null)) ?? null,
+      })
 
       return c.json({ message: 'Task completed successfully' })
     } catch (error: unknown) {

@@ -233,6 +233,9 @@ Artemis is a comprehensive workforce experience platform that consolidates HR op
   - Automatically generated tasks (document upload, form completion, etc.)
   - Onboarding checklist automation
   - Task progress tracking
+  - Task Hub UI (`/tasks`) with filters (All/Mine/Documents/Forms/Completed)
+  - Document upload modal connected to employee documents + workflow completion
+  - Form task modal with dynamic fields and completion payload
 - **Status**: ✅ Implemented (Workflow Drafting & Publishing)
 
 **HR-CORE-018: Workflow Builder** ✅ **IMPLEMENTED**
@@ -278,13 +281,13 @@ Artemis is a comprehensive workforce experience platform that consolidates HR op
 
 #### 10. Communication (Kommunikation)
 
-**HR-CORE-014: Company News** ⏳ **PLANNED**
+**HR-CORE-014: Company News** ✅ **IMPLEMENTED**
 - **Description**: Internal news and announcements
 - **Features**:
-  - HR publishing interface for news
-  - Internal announcements
-  - Company-wide notifications
-- **Status**: ⏳ Not yet implemented
+  - HR publishing interface for news, mitteilungen, and announcements
+  - Scheduling + publish/unpublish workflow with audit log
+  - Dashboard widget surfacing the latest company-wide communications
+- **Status**: ✅ Implemented (company_news feature flag)
 
 **HR-CORE-015: Notification System** ⏳ **PLANNED**
 - **Description**: Multi-channel notification system

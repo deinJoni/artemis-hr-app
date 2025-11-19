@@ -1,6 +1,9 @@
 import * as React from "react";
 import type { Route } from "./+types/members";
 import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { cn } from "~/lib/utils";
 import { supabase } from "~/lib/supabase";
 import {
   MembershipListResponseSchema,
@@ -20,6 +23,83 @@ const ROLE_LABELS: Record<Membership["role"], string> = {
 
 const ASSIGNABLE_ROLES: Membership["role"][] = ["employee", "manager", "people_ops", "admin"];
 const MEMBER_ROLE_OPTIONS: Membership["role"][] = ["owner", "admin", "people_ops", "manager", "employee"];
+const ROLE_COLUMNS: Membership["role"][] = ["owner", "admin", "people_ops", "manager", "employee"];
+
+type AccessLevel = "all" | "team" | "own" | false;
+
+const ACCESS_LABELS: Record<Exclude<AccessLevel, false>, { label: string; className: string }> = {
+  all: { label: "Full", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200" },
+  team: { label: "Team", className: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200" },
+  own: { label: "Self", className: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200" },
+};
+
+const PERMISSION_MATRIX: Array<{
+  category: string;
+  permission: string;
+  description: string;
+  access: Record<Membership["role"], AccessLevel>;
+}> = [
+  {
+    category: "Workspace",
+    permission: "Manage members",
+    description: "Invite, remove, and change workspace roles.",
+    access: { owner: "all", admin: "all", people_ops: false, manager: false, employee: false },
+  },
+  {
+    category: "Employees",
+    permission: "View employee profiles",
+    description: "Access the full employee directory.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: "team", employee: "own" },
+  },
+  {
+    category: "Employees",
+    permission: "Edit employee records",
+    description: "Create or update employee details.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: "team", employee: false },
+  },
+  {
+    category: "Employees",
+    permission: "Manage compensation",
+    description: "Edit salary and payroll settings.",
+    access: { owner: "all", admin: "all", people_ops: false, manager: false, employee: false },
+  },
+  {
+    category: "Employees",
+    permission: "View compensation",
+    description: "View salary and pay information.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: false, employee: false },
+  },
+  {
+    category: "Employees",
+    permission: "View sensitive data",
+    description: "Access bank, tax, and sensitive flags.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: false, employee: false },
+  },
+  {
+    category: "Time & Leave",
+    permission: "Approve time/leave",
+    description: "Approve timesheets, overtime, or leave.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: "team", employee: false },
+  },
+  {
+    category: "Org Structure",
+    permission: "Manage departments & teams",
+    description: "Create, update, or delete departments and teams.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: false, employee: false },
+  },
+  {
+    category: "Compliance",
+    permission: "View audit log",
+    description: "Review employee change history.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: "team", employee: false },
+  },
+  {
+    category: "Data",
+    permission: "Import/export data",
+    description: "Bulk import employees or export reports.",
+    access: { owner: "all", admin: "all", people_ops: "all", manager: false, employee: false },
+  },
+];
 
 export async function loader() {
   const baseUrl =
@@ -201,6 +281,81 @@ export default function Members({ loaderData }: Route.ComponentProps) {
         </p>
       </div>
 
+      <Card className="border-border/60 bg-card/80">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold">Role-based permissions</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Owners and admins have full access by default. Managers can work with their own teams, while employees only see their
+            own data.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="overflow-x-auto rounded-lg border border-border/60">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Permission</th>
+                  <th className="px-4 py-3 font-medium">Scope</th>
+                  {ROLE_COLUMNS.map((role) => (
+                    <th key={role} className="px-4 py-3 font-medium">
+                      {ROLE_LABELS[role]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PERMISSION_MATRIX.map((row, index) => {
+                  const prevCategory = PERMISSION_MATRIX[index - 1]?.category;
+                  const showCategoryHeader = index === 0 || prevCategory !== row.category;
+                  return (
+                    <React.Fragment key={`${row.category}-${row.permission}`}>
+                      {showCategoryHeader ? (
+                        <tr className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                          <td colSpan={ROLE_COLUMNS.length + 2} className="px-4 py-2 font-semibold">
+                            {row.category}
+                          </td>
+                        </tr>
+                      ) : null}
+                      <tr className="border-t border-border/40">
+                        <td className="px-4 py-3 text-sm font-medium text-foreground">{row.permission}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{row.description}</td>
+                        {ROLE_COLUMNS.map((role) => {
+                          const value = row.access[role];
+                          if (!value) {
+                            return (
+                              <td key={role} className="px-4 py-3 text-center text-muted-foreground">
+                                —
+                              </td>
+                            );
+                          }
+                          const badge = ACCESS_LABELS[value];
+                          return (
+                            <td key={role} className="px-4 py-3 text-center">
+                              <span
+                                className={cn(
+                                  "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold",
+                                  badge.className,
+                                )}
+                              >
+                                {badge.label}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <strong>Full</strong> means tenant-wide access, <strong>Team</strong> applies to direct reports, and <strong>Self</strong>{" "}
+            is limited to the user&apos;s own record.
+          </p>
+        </CardContent>
+      </Card>
+
       {error ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
@@ -221,19 +376,23 @@ export default function Members({ loaderData }: Route.ComponentProps) {
         </label>
         <label className="flex w-40 flex-col gap-1 text-left">
           <span className="text-sm font-medium">Role</span>
-          <select
+          <Select
             value={newMember.role}
-            onChange={(e) =>
-              setNewMember((m) => ({ ...m, role: e.target.value as Membership["role"] }))
+            onValueChange={(value) =>
+              setNewMember((m) => ({ ...m, role: value as Membership["role"] }))
             }
-            className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
           >
-            {ASSIGNABLE_ROLES.map((role) => (
-              <option key={role} value={role}>
-                {ROLE_LABELS[role]}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-11 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ASSIGNABLE_ROLES.map((role) => (
+                <SelectItem key={role} value={role}>
+                  {ROLE_LABELS[role]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <Button type="submit" disabled={working}>
           {working ? "Working..." : "Add member"}
@@ -254,21 +413,29 @@ export default function Members({ loaderData }: Route.ComponentProps) {
               <tr key={`${m.tenant_id}:${m.user_id}`} className="border-t">
                 <td className="px-4 py-2">{m.email ?? m.user_id}</td>
                 <td className="px-4 py-2">
-                  <select
+                  <Select
                     value={m.role}
-                    onChange={(e) => {
-                      const nextRole = e.target.value as Membership["role"];
+                    onValueChange={(value) => {
+                      const nextRole = value as Membership["role"];
                       if (nextRole === "owner") return;
                       void changeRole(m.user_id, nextRole);
                     }}
-                    className="h-9 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   >
-                    {MEMBER_ROLE_OPTIONS.map((role) => (
-                      <option key={role} value={role} disabled={role === "owner"}>
-                        {ROLE_LABELS[role]}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-9 w-full px-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MEMBER_ROLE_OPTIONS.map((role) => (
+                        <SelectItem
+                          key={role}
+                          value={role}
+                          disabled={role === "owner" && m.role !== "owner"}
+                        >
+                          {ROLE_LABELS[role]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </td>
                 <td className="px-4 py-2">
                   <Button

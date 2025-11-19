@@ -3,6 +3,9 @@ import type { Route } from "./+types/team-calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Label } from "~/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
+import { Checkbox } from "~/components/ui/checkbox";
 import { Badge } from "~/components/ui/badge";
 import type { CalendarEvent, CalendarResponse, ManagerCalendarFilter } from "@vibe/shared";
 import { supabase } from "~/lib/supabase";
@@ -216,6 +219,15 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
+  const selectedTeamMemberIds = React.useMemo(() => filters.user_ids ?? [], [filters.user_ids]);
+  const selectedTeamMembers = React.useMemo(
+    () => teamMembers.filter((member) => selectedTeamMemberIds.includes(member.user_id)),
+    [teamMembers, selectedTeamMemberIds]
+  );
+  const teamMemberLabel = selectedTeamMembers.length
+    ? `${selectedTeamMembers.length} selected`
+    : "All team members";
+
   const getEventStyle = (event: any) => {
     const ev = event.resource as CalendarEvent;
     if (ev.kind === 'time_off') {
@@ -371,38 +383,80 @@ export default function TeamCalendar({ loaderData }: Route.ComponentProps) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border rounded-lg bg-muted/20">
               <div className="space-y-2">
                 <Label htmlFor="status-filter">Status</Label>
-                <select
-                  id="status-filter"
-                  value={filters.status || 'all'}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                <Select
+                  value={filters.status || "all"}
+                  onValueChange={(value) =>
+                    handleFilterChange("status", value === "all" ? "all" : (value as ManagerCalendarFilter["status"]))
+                  }
                 >
-                  <option value="all">All Status</option>
-                  <option value="clocked-in">Clocked In</option>
-                  <option value="not-clocked-in">Not Clocked In</option>
-                  <option value="on-leave">On Leave</option>
-                  <option value="absent">Absent</option>
-                </select>
+                  <SelectTrigger id="status-filter" className="h-10 w-full">
+                    <SelectValue placeholder="All status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="clocked-in">Clocked In</SelectItem>
+                    <SelectItem value="not-clocked-in">Not Clocked In</SelectItem>
+                    <SelectItem value="on-leave">On Leave</SelectItem>
+                    <SelectItem value="absent">Absent</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="space-y-2">
                 <Label htmlFor="team-filter">Team Members</Label>
-                <select
-                  id="team-filter"
-                  multiple
-                  value={filters.user_ids || []}
-                  onChange={(e) => {
-                    const selected = Array.from(e.target.selectedOptions, option => option.value);
-                    handleFilterChange('user_ids', selected);
-                  }}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {teamMembers.map(member => (
-                    <option key={member.user_id} value={member.user_id}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="h-10 w-full justify-between px-3 text-sm font-normal"
+                      id="team-filter"
+                    >
+                      <span className="truncate">{teamMemberLabel}</span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[260px] p-0" align="start">
+                    <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
+                      <span>Select members</span>
+                      {selectedTeamMemberIds.length ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto px-2 py-1 text-xs"
+                          onClick={() => handleFilterChange("user_ids", [])}
+                        >
+                          Clear
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="max-h-60 overflow-y-auto p-2">
+                      {teamMembers.length ? (
+                        teamMembers.map((member) => {
+                          const isChecked = selectedTeamMemberIds.includes(member.user_id);
+                          return (
+                            <label
+                              key={member.user_id}
+                              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted"
+                            >
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={(checked) => {
+                                  const next = checked === true
+                                    ? [...selectedTeamMemberIds, member.user_id]
+                                    : selectedTeamMemberIds.filter((id) => id !== member.user_id);
+                                  handleFilterChange("user_ids", Array.from(new Set(next)));
+                                }}
+                              />
+                              <span className="truncate">{member.name}</span>
+                            </label>
+                          );
+                        })
+                      ) : (
+                        <p className="px-2 py-3 text-sm text-muted-foreground">No team members available.</p>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">

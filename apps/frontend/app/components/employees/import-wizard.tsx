@@ -2,6 +2,7 @@ import * as React from "react";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, RefreshCw } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { cn } from "~/lib/utils";
 import type { CSVImportPreview, CSVImportResult } from "@vibe/shared";
 
@@ -14,6 +15,8 @@ type ImportWizardProps = {
   apiBaseUrl: string;
   tenantId: string;
 };
+
+const SKIP_FIELD_VALUE = "__skip__"
 
 export function ImportWizard({ isOpen, onClose, onComplete, apiBaseUrl, tenantId }: ImportWizardProps) {
   const [currentStep, setCurrentStep] = React.useState<ImportStep>("upload");
@@ -315,18 +318,24 @@ export function ImportWizard({ isOpen, onClose, onComplete, apiBaseUrl, tenantId
                       <div key={csvColumn} className="flex items-center space-x-4">
                         <div className="w-48 text-sm font-medium">{csvColumn}</div>
                         <div className="flex-1">
-                          <select
-                            value={fieldMapping[csvColumn] || ""}
-                            onChange={(e) => handleMappingChange(csvColumn, e.target.value)}
-                            className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm"
+                          <Select
+                            value={fieldMapping[csvColumn] || SKIP_FIELD_VALUE}
+                            onValueChange={(value) =>
+                              handleMappingChange(csvColumn, value === SKIP_FIELD_VALUE ? "" : value)
+                            }
                           >
-                            <option value="">Skip this column</option>
-                            {availableFields.map(field => (
-                              <option key={field.key} value={field.key}>
-                                {field.label} {field.required && "*"}
-                              </option>
-                            ))}
-                          </select>
+                            <SelectTrigger className="h-10 w-full">
+                              <SelectValue placeholder="Skip this column" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={SKIP_FIELD_VALUE}>Skip this column</SelectItem>
+                              {availableFields.map((field) => (
+                                <SelectItem key={field.key} value={field.key}>
+                                  {field.label} {field.required && "*"}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
                     ))}

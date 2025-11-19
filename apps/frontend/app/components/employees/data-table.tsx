@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { cn } from "~/lib/utils";
 import { buildEmployeeColumnsWithCustom, employeeColumns, type EmployeeTableMeta } from "./columns";
 import type { EmployeeCustomFieldDef } from "@vibe/shared";
@@ -46,6 +47,9 @@ type EmployeeDataTableProps = {
   onSelectAll?: (selected: boolean) => void;
   departmentFilter?: string;
   statusFilter?: string;
+  showCompensationColumns?: boolean;
+  showSensitiveColumns?: boolean;
+  canRemove?: boolean;
 };
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -73,10 +77,20 @@ export function EmployeeDataTable({
   onSelectAll,
   departmentFilter: _departmentFilter,
   statusFilter: _statusFilter,
+  showCompensationColumns = false,
+  showSensitiveColumns = false,
+  canRemove = true,
 }: EmployeeDataTableProps) {
   const pageCount = total > 0 ? Math.ceil(total / pageSize) : 1;
 
-  const columns = useMemo(() => buildEmployeeColumnsWithCustom(fieldDefs), [fieldDefs]);
+  const columns = useMemo(
+    () =>
+      buildEmployeeColumnsWithCustom(fieldDefs, {
+        showCompensation: showCompensationColumns,
+        showSensitive: showSensitiveColumns,
+      }),
+    [fieldDefs, showCompensationColumns, showSensitiveColumns]
+  );
 
   const table = useReactTable({
     data,
@@ -109,6 +123,7 @@ export function EmployeeDataTable({
       selectedEmployees,
       onSelectEmployee,
       onSelectAll,
+      canDelete: canRemove,
     } satisfies EmployeeTableMeta,
   });
 
@@ -158,17 +173,21 @@ export function EmployeeDataTable({
       </div>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <span>Rows per page:</span>
-        <select
-          value={pageSize}
-          onChange={(event) => setPageSize(Number(event.target.value))}
-          className="h-11 rounded-xl border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+        <Select
+          value={String(pageSize)}
+          onValueChange={(value) => setPageSize(Number(value))}
         >
-          {PAGE_SIZE_OPTIONS.map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="h-11 w-24 rounded-xl">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <SelectItem key={size} value={String(size)}>
+                {size}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );

@@ -5,8 +5,11 @@ import { supabase } from "~/lib/supabase";
 import { TaskListResponseSchema, type Task } from "@vibe/shared";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Badge } from "~/components/ui/badge";
 import { Progress } from "~/components/ui/progress";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, UploadCloud, FileText } from "lucide-react";
+import { DocumentTaskDialog } from "~/components/tasks/document-task-dialog";
+import { FormTaskDialog } from "~/components/tasks/form-task-dialog";
 
 export async function loader({ params }: Route.LoaderArgs) {
   const { shareToken } = params;
@@ -80,6 +83,8 @@ export default function Journey({ loaderData }: Route.ComponentProps) {
   };
   const revalidator = useRevalidator();
   const [completingTaskId, setCompletingTaskId] = React.useState<string | null>(null);
+  const [documentTask, setDocumentTask] = React.useState<Task | null>(null);
+  const [formTask, setFormTask] = React.useState<Task | null>(null);
 
   const completedTasks = tasks.filter((t) => t.status === "completed");
   const pendingTasks = tasks.filter(
@@ -185,34 +190,47 @@ export default function Journey({ loaderData }: Route.ComponentProps) {
                     return (
                       <Card key={task.id} className="border-l-4 border-l-primary">
                         <CardHeader>
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <CardTitle className="text-lg flex items-center gap-2">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 space-y-2">
+                              <CardTitle className="text-lg flex flex-wrap items-center gap-2">
                                 <Circle className="h-5 w-5 text-muted-foreground" />
                                 {title}
+                                <Badge variant="outline" className="capitalize">
+                                  {task.task_type}
+                                </Badge>
                               </CardTitle>
                               {payload?.description && (
-                                <CardDescription className="mt-2">
-                                  {payload.description}
-                                </CardDescription>
+                                <CardDescription>{payload.description}</CardDescription>
                               )}
                               {payload?.instructions && (
-                                <div className="mt-2 text-sm text-muted-foreground">
+                                <div className="text-sm text-muted-foreground">
                                   <strong>Instructions:</strong> {payload.instructions}
                                 </div>
                               )}
                             </div>
-                            <Button
-                              size="sm"
-                              onClick={() => handleCompleteTask(task.id)}
-                              disabled={isCompleting}
-                            >
-                              {isCompleting ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                "Mark Complete"
-                              )}
-                            </Button>
+                            {task.task_type === "document" ? (
+                              <Button size="sm" onClick={() => setDocumentTask(task)}>
+                                <UploadCloud className="mr-2 h-4 w-4" />
+                                Upload
+                              </Button>
+                            ) : task.task_type === "form" ? (
+                              <Button size="sm" onClick={() => setFormTask(task)}>
+                                <FileText className="mr-2 h-4 w-4" />
+                                Fill form
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={() => handleCompleteTask(task.id)}
+                                disabled={isCompleting}
+                              >
+                                {isCompleting ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  "Mark Complete"
+                                )}
+                              </Button>
+                            )}
                           </div>
                         </CardHeader>
                       </Card>
@@ -260,6 +278,32 @@ export default function Journey({ loaderData }: Route.ComponentProps) {
             </CardContent>
           </Card>
         )}
+
+        <DocumentTaskDialog
+          task={documentTask}
+          apiBaseUrl={baseUrl}
+          open={Boolean(documentTask)}
+          onOpenChange={(open) => {
+            if (!open) setDocumentTask(null);
+          }}
+          onSuccess={() => {
+            setDocumentTask(null);
+            revalidator.revalidate();
+          }}
+        />
+
+        <FormTaskDialog
+          task={formTask}
+          apiBaseUrl={baseUrl}
+          open={Boolean(formTask)}
+          onOpenChange={(open) => {
+            if (!open) setFormTask(null);
+          }}
+          onSuccess={() => {
+            setFormTask(null);
+            revalidator.revalidate();
+          }}
+        />
       </div>
     </div>
   );

@@ -17,6 +17,11 @@ as $$
 declare
   v_user uuid := public.app_current_user_id();
   v_tenant public.tenants;
+  v_template_id uuid;
+  v_workflow_id uuid;
+  v_version_id uuid;
+  v_slug text := 'standard-offboarding';
+  v_slug_exists boolean;
 begin
   if v_user is null then
     raise exception 'unauthorized';
@@ -29,6 +34,67 @@ begin
   insert into public.memberships(user_id, tenant_id, role)
   values (v_user, v_tenant.id, 'owner')
   on conflict do nothing;
+
+  -- Create default offboarding workflow from template
+  -- Look up the "Standard Offboarding" template
+  select id into v_template_id
+  from public.workflow_templates
+  where name = 'Standard Offboarding'
+    and kind = 'offboarding'
+  limit 1;
+
+  -- Only create workflow if template exists
+  if v_template_id is not null then
+    -- Check for slug uniqueness and adjust if needed
+    select exists(
+      select 1 from public.workflows
+      where tenant_id = v_tenant.id
+        and slug = v_slug
+    ) into v_slug_exists;
+
+    if v_slug_exists then
+      -- Append a suffix if slug already exists
+      v_slug := v_slug || '-' || substr(gen_random_uuid()::text, 1, 8);
+    end if;
+
+    -- Create workflow
+    insert into public.workflows (tenant_id, name, slug, kind, status, created_by, updated_by)
+    values (
+      v_tenant.id,
+      'Standard Offboarding',
+      v_slug,
+      'offboarding',
+      'published',
+      v_user,
+      v_user
+    )
+    returning id into v_workflow_id;
+
+    -- Create workflow version from template
+    insert into public.workflow_versions (
+      workflow_id,
+      version_number,
+      is_active,
+      definition,
+      created_by,
+      published_at
+    )
+    select
+      v_workflow_id,
+      1,
+      true,
+      blocks,
+      v_user,
+      now()
+    from public.workflow_templates
+    where id = v_template_id
+    returning id into v_version_id;
+
+    -- Update workflow with active version
+    update public.workflows
+    set active_version_id = v_version_id
+    where id = v_workflow_id;
+  end if;
 
   return v_tenant;
 end;

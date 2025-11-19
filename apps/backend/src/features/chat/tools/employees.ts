@@ -1,16 +1,10 @@
 import { DynamicStructuredTool } from '@langchain/core/tools'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 
-import type { Database } from '@database.types.ts'
 import { EmployeePublicListResponseSchema } from '@vibe/shared'
 import { getPrimaryTenantId } from '../../../lib/tenant-context'
 
-export interface EmployeeToolContext {
-  supabase: SupabaseClient<Database>
-  userToken: string
-  apiBaseUrl: string
-}
+import type { ToolExecutionContext } from '../context'
 
 // Define schema with explicit defaults to ensure proper JSON Schema conversion
 const EmployeeToolInputSchema = z.object({
@@ -26,7 +20,7 @@ type EmployeeToolInput = z.infer<typeof EmployeeToolInputSchema>
  * Creates a LangChain tool for fetching employees that the authenticated user has permission to view.
  * The tool calls the Hono API endpoint to ensure centralized permission checks, audit logging, and consistent response validation.
  */
-export function createEmployeeTool(context: EmployeeToolContext) {
+export function createEmployeeTool(context: ToolExecutionContext) {
   return new DynamicStructuredTool({
     name: 'get_employees',
     description: 'Get all employees that the authenticated user has permission to view. Returns a paginated list of employees with their basic information (name, email, job title, department, status). Excludes sensitive data like bank accounts and tax IDs. Supports pagination with page and pageSize parameters.',
@@ -103,4 +97,3 @@ export function createEmployeeTool(context: EmployeeToolContext) {
     },
   })
 }
-
