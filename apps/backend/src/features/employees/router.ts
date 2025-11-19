@@ -1839,13 +1839,13 @@ async function deleteEmployeeWithCleanup({
     }
 
     const storagePaths = documents
-      .map((doc) => doc.storage_path)
-      .filter((path): path is string => Boolean(path))
+      .map((doc: Pick<EmployeeDocument, 'storage_path'>) => doc.storage_path)
+      .filter((path: string | null | undefined): path is string => Boolean(path))
     if (storagePaths.length > 0) {
       await supabaseAdmin.storage
         .from(DOCUMENT_BUCKET)
         .remove(storagePaths)
-        .catch((error) => {
+        .catch((error: unknown) => {
           console.error('Failed to remove employee document files:', error)
         })
     }
