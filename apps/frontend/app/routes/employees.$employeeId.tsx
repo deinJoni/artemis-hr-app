@@ -116,6 +116,9 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
     () => [
       { value: "", label: "No Category" },
       { value: "contract", label: "Contract" },
+      { value: "supplemental_agreement", label: "Supplemental Agreement" },
+      { value: "disciplinary_warning", label: "Warning / Notice" },
+      { value: "reference_letter", label: "Reference / Testimonial" },
       { value: "certification", label: "Certification" },
       { value: "id_document", label: "ID Document" },
       { value: "performance", label: "Performance" },
@@ -718,7 +721,7 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
                   <input
                     ref={fileInputRef}
                     type="file"
-                    className="hidden"
+                    className="sr-only"
                     onChange={handleUpload}
                     disabled={!detail.permissions.canManageDocuments || uploading}
                   />
@@ -902,31 +905,138 @@ export default function EmployeeDetail({ loaderData, params }: Route.ComponentPr
             <div className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Audit History</CardTitle>
-                  <p className="text-sm text-muted-foreground">Track all changes to this employee record</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Audit History</CardTitle>
+                      <p className="text-sm text-muted-foreground">Track all changes to this employee record</p>
+                    </div>
+                    {detail.auditLog && detail.auditLog.length > 0 && detail.permissions.canViewAuditLog && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            const session = (await supabase.auth.getSession()).data.session;
+                            const token = session?.access_token;
+                            if (!token) return;
+                            
+                            const csvContent = [
+                              ["Timestamp", "Action", "Field", "Before", "After", "Reason", "IP Address", "User Agent"].join(","),
+                              ...detail.auditLog!.map((log) => {
+                                const formatCsvValue = (val: any) => {
+                                  if (val === null || val === undefined) return "";
+                                  if (typeof val === "object") {
+                                    try {
+                                      return `"${JSON.stringify(val).replace(/"/g, '""')}"`;
+                                    } catch {
+                                      return `"${String(val).replace(/"/g, '""')}"`;
+                                    }
+                                  }
+                                  return `"${String(val).replace(/"/g, '""')}"`;
+                                };
+                                return [
+                                  format(new Date(log.created_at), "yyyy-MM-dd HH:mm:ss"),
+                                  log.action,
+                                  log.field_name || "",
+                                  formatCsvValue(log.old_value),
+                                  formatCsvValue(log.new_value),
+                                  log.change_reason || "",
+                                  log.ip_address || "",
+                                  log.user_agent || "",
+                                ].join(",");
+                              }),
+                            ].join("\n");
+                            
+                            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download = `audit-log-${detail.employee.name.replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                          } catch (error) {
+                            console.error("Failed to export audit log:", error);
+                          }
+                        }}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        Export CSV
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {detail.auditLog && detail.auditLog.length > 0 ? (
                     <div className="space-y-4">
-                      {detail.auditLog.map((log) => (
-                        <div key={log.id} className="flex items-start gap-3 p-3 border rounded-lg">
-                          <div className="w-2 h-2 bg-primary rounded-full mt-2" />
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 text-sm">
-                              <span className="font-medium">{log.action}</span>
-                              {log.field_name && (
-                                <span className="text-muted-foreground">• {log.field_name}</span>
+                      {detail.auditLog.map((log) => {
+                        const formatValue = (value: any): string => {
+                          if (value === null || value === undefined) return "—";
+                          if (typeof value === "object") {
+                            try {
+                              return JSON.stringify(value, null, 2);
+                            } catch {
+                              return String(value);
+                            }
+                          }
+                          return String(value);
+                        };
+                        const hasValueChange = log.old_value !== null || log.new_value !== null;
+                        return (
+                          <div key={log.id} className="flex items-start gap-3 p-4 border rounded-lg bg-card">
+                            <div className="w-2 h-2 bg-primary rounded-full mt-2 flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-medium capitalize">{log.action}</span>
+                                {log.field_name && (
+                                  <span className="text-muted-foreground">• {log.field_name}</span>
+                                )}
+                                <span className="text-muted-foreground ml-auto">
+                                  {format(new Date(log.created_at), "MMM d, yyyy 'at' h:mm a")}
+                                </span>
+                              </div>
+                              {hasValueChange && (
+                                <div className="grid grid-cols-2 gap-3 mt-2 text-xs">
+                                  {log.old_value !== null && (
+                                    <div className="space-y-1">
+                                      <div className="font-medium text-muted-foreground">Before</div>
+                                      <div className="p-2 rounded bg-muted/50 font-mono text-xs break-words">
+                                        {formatValue(log.old_value)}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {log.new_value !== null && (
+                                    <div className="space-y-1">
+                                      <div className="font-medium text-muted-foreground">After</div>
+                                      <div className="p-2 rounded bg-muted/50 font-mono text-xs break-words">
+                                        {formatValue(log.new_value)}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               )}
-                              <span className="text-muted-foreground">
-                                {format(new Date(log.created_at), "MMM d, yyyy 'at' h:mm a")}
-                              </span>
+                              {log.change_reason && (
+                                <p className="text-sm text-muted-foreground mt-2 italic">
+                                  Reason: {log.change_reason}
+                                </p>
+                              )}
+                              {(log.ip_address || log.user_agent) && (
+                                <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                                  {log.ip_address && log.ip_address !== "unknown" && (
+                                    <span>IP: {log.ip_address}</span>
+                                  )}
+                                  {log.user_agent && log.user_agent !== "unknown" && (
+                                    <span className="truncate max-w-xs" title={log.user_agent}>
+                                      {log.user_agent}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            {log.change_reason && (
-                              <p className="text-sm text-muted-foreground mt-1">{log.change_reason}</p>
-                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">

@@ -32,6 +32,9 @@ export type SalaryFrequency = z.infer<typeof SalaryFrequencyEnum>;
 
 export const DocumentCategoryEnum = z.enum([
   "contract",
+  "supplemental_agreement",
+  "disciplinary_warning",
+  "reference_letter",
   "certification",
   "id_document",
   "performance",
