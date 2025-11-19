@@ -12,11 +12,12 @@ export interface EmployeeToolContext {
   apiBaseUrl: string
 }
 
+// Define schema with explicit defaults to ensure proper JSON Schema conversion
 const EmployeeToolInputSchema = z.object({
   search: z.string().optional().describe('Optional search term to filter employees by name or email'),
   status: z.enum(['active', 'on_leave', 'terminated', 'inactive']).optional().describe('Optional filter by employment status'),
-  page: z.number().int().min(1).optional().default(1).describe('Page number for pagination (default: 1)'),
-  pageSize: z.number().int().min(1).max(100).optional().default(20).describe('Number of results per page (default: 20, max: 100)'),
+  page: z.number().int().min(1).default(1).describe('Page number for pagination (default: 1)'),
+  pageSize: z.number().int().min(1).max(100).default(20).describe('Number of results per page (default: 20, max: 100)'),
 })
 
 type EmployeeToolInput = z.infer<typeof EmployeeToolInputSchema>

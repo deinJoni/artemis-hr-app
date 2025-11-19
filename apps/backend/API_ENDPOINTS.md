@@ -53,6 +53,13 @@ All `/api` routes are protected by the authentication middleware configured in `
 | GET | `/api/equipment/:employeeId` | Lists equipment assigned to an employee for a given tenant. |
 | PUT | `/api/equipment/:id/return` | Marks equipment as returned and clears the employee association. |
 
+## Cross-Functional Approvals
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/api/approvals/requests` | Lists approval requests (equipment, training, salary changes) with optional `category` and `status` filters. |
+| POST | `/api/approvals/requests` | Submits a new approval request for the current tenant after permission checks. |
+| PUT | `/api/approvals/requests/:id/decision` | Approves or denies an approval request and tracks the decision reason. |
+
 ## Employees
 
 ### Employee Profiles

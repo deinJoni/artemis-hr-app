@@ -2,13 +2,17 @@ import * as React from "react";
 import type { Route } from "./+types/approvals";
 import { TimeApprovalsList } from "~/components/time/time-approvals-list";
 import { LeaveApprovalsList } from "~/components/leave/leave-approvals-list";
+import { CrossFunctionalApprovalsList } from "~/components/approvals/cross-functional-approvals-list";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Separator } from "~/components/ui/separator";
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Approvals - Artemis" },
-    { name: "description", content: "Manage pending time and leave approvals in one place" },
+    {
+      name: "description",
+      content: "Manage pending time, leave, equipment, training, and compensation approvals in one place",
+    },
   ];
 }
 
@@ -18,7 +22,8 @@ export default function ApprovalsPage() {
       <div className="space-y-2">
         <h1 className="text-4xl font-bold">Approvals</h1>
         <p className="text-muted-foreground">
-          Review and action every pending approval for your team across time entries and leave.
+          Review and action every pending approval for your team across time entries, leave, equipment,
+          learning, and compensation.
         </p>
       </div>
 
@@ -26,7 +31,7 @@ export default function ApprovalsPage() {
         <CardHeader>
           <CardTitle>Quick Guidance</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
+        <CardContent className="grid gap-4 md:grid-cols-3">
           <div className="space-y-1 text-sm text-muted-foreground">
             <span className="font-medium text-foreground">Time Entry Approvals</span>
             <p>
@@ -41,6 +46,13 @@ export default function ApprovalsPage() {
               denying the request.
             </p>
           </div>
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Equipment & Compensation</span>
+            <p>
+              Review hardware, training, and salary adjustments alongside business context before
+              deciding.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -50,6 +62,8 @@ export default function ApprovalsPage() {
           <LeaveApprovalsList />
         </div>
       </div>
+
+      <CrossFunctionalApprovalsList />
 
       <Separator />
 

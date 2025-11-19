@@ -169,6 +169,105 @@ export type Database = {
           },
         ]
       }
+      approval_requests: {
+        Row: {
+          approver_user_id: string | null
+          attachments: Json
+          category: string
+          created_at: string
+          decided_at: string | null
+          decision_reason: string | null
+          details: Json
+          id: string
+          justification: string
+          needed_by: string | null
+          requested_at: string
+          requested_by_employee_id: string | null
+          requested_by_user_id: string
+          status: string
+          summary: string | null
+          tenant_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          approver_user_id?: string | null
+          attachments?: Json
+          category: string
+          created_at?: string
+          decided_at?: string | null
+          decision_reason?: string | null
+          details?: Json
+          id?: string
+          justification: string
+          needed_by?: string | null
+          requested_at?: string
+          requested_by_employee_id?: string | null
+          requested_by_user_id: string
+          status?: string
+          summary?: string | null
+          tenant_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          approver_user_id?: string | null
+          attachments?: Json
+          category?: string
+          created_at?: string
+          decided_at?: string | null
+          decision_reason?: string | null
+          details?: Json
+          id?: string
+          justification?: string
+          needed_by?: string | null
+          requested_at?: string
+          requested_by_employee_id?: string | null
+          requested_by_user_id?: string
+          status?: string
+          summary?: string | null
+          tenant_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_goal_summaries"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       blackout_periods: {
         Row: {
           created_at: string
@@ -3471,6 +3570,68 @@ export type Database = {
           },
           {
             foreignKeyName: "access_grants_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      approval_request_summary: {
+        Row: {
+          approver_user_id: string | null
+          attachments: Json | null
+          category: string | null
+          created_at: string | null
+          decided_at: string | null
+          decision_reason: string | null
+          department_name: string | null
+          details: Json | null
+          id: string | null
+          justification: string | null
+          needed_by: string | null
+          requested_at: string | null
+          requested_by_employee_id: string | null
+          requested_by_user_id: string | null
+          requestor_job_title: string | null
+          requestor_name: string | null
+          status: string | null
+          summary: string | null
+          tenant_id: string | null
+          title: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_goal_summaries"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "approval_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"

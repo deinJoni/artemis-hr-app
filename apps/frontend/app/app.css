@@ -6,6 +6,8 @@
 @custom-variant themename-dark (&:is(.themename-dark *));
 @custom-variant theme2-light (&:is(.theme2-light *));
 @custom-variant theme2-dark (&:is(.theme2-dark *));
+@custom-variant glass-light (&:is(.glass-light *));
+@custom-variant glass-dark (&:is(.glass-dark *));
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
@@ -261,6 +263,77 @@ body {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+}
+
+/* Glass inspired theme that mimics the product mockups */
+.glass-light {
+  --radius: 1.25rem;
+  --background: #e6ebf7;
+  --foreground: #1d2233;
+  --card: rgba(255, 255, 255, 0.78);
+  --card-foreground: #1d2233;
+  --popover: rgba(255, 255, 255, 0.95);
+  --popover-foreground: #1d2233;
+  --primary: #7a83ff;
+  --primary-foreground: #f3f5ff;
+  --secondary: rgba(248, 250, 255, 0.85);
+  --secondary-foreground: #1d2233;
+  --muted: #d7dff2;
+  --muted-foreground: #5a617b;
+  --accent: #93a4ff;
+  --accent-foreground: #0f1826;
+  --destructive: #ff8b7c;
+  --border: rgba(255, 255, 255, 0.55);
+  --input: rgba(255, 255, 255, 0.65);
+  --ring: #9cc4ff;
+  --chart-1: #64e2c8;
+  --chart-2: #7a83ff;
+  --chart-3: #ffa8d3;
+  --chart-4: #7ad8ff;
+  --chart-5: #ffe58f;
+  --sidebar: rgba(255, 255, 255, 0.9);
+  --sidebar-foreground: #1d2233;
+  --sidebar-primary: #7a83ff;
+  --sidebar-primary-foreground: #f3f5ff;
+  --sidebar-accent: rgba(122, 131, 255, 0.18);
+  --sidebar-accent-foreground: #1d2233;
+  --sidebar-border: rgba(21, 33, 61, 0.08);
+  --sidebar-ring: #93a4ff;
+}
+
+.glass-dark {
+  --radius: 1.25rem;
+  --background: #0f141f;
+  --foreground: #f3f5ff;
+  --card: rgba(21, 26, 41, 0.9);
+  --card-foreground: #f3f5ff;
+  --popover: rgba(27, 33, 50, 0.95);
+  --popover-foreground: #f3f5ff;
+  --primary: #7a83ff;
+  --primary-foreground: #f3f5ff;
+  --secondary: rgba(22, 28, 45, 0.8);
+  --secondary-foreground: #c7ceff;
+  --muted: rgba(255, 255, 255, 0.08);
+  --muted-foreground: #8f96b8;
+  --accent: #8794ff;
+  --accent-foreground: #0d141f;
+  --destructive: #ff7b6d;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.15);
+  --ring: #7a83ff;
+  --chart-1: #64e2c8;
+  --chart-2: #ffb86c;
+  --chart-3: #7a83ff;
+  --chart-4: #ffa8d3;
+  --chart-5: #65b9ff;
+  --sidebar: #141a2a;
+  --sidebar-foreground: #f3f5ff;
+  --sidebar-primary: #7a83ff;
+  --sidebar-primary-foreground: #f3f5ff;
+  --sidebar-accent: rgba(122, 131, 255, 0.18);
+  --sidebar-accent-foreground: #f3f5ff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #64e2c8;
 }
 
 @layer base {

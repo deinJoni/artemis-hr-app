@@ -95,6 +95,14 @@ const FEATURE_ROUTE_MAP: Array<{
   },
 ];
 
+const PUBLIC_ROUTE_PREFIXES = ["/login", "/register", "/reset-password"] as const;
+
+const isPublicPath = (pathname: string) => {
+  return PUBLIC_ROUTE_PREFIXES.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`)
+  );
+};
+
 // Validate API base URL at module load time
 if (!API_BASE_URL || API_BASE_URL.trim() === "") {
   const error = new Error(
@@ -256,14 +264,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const path = location.pathname;
-    const shouldCheckTenant =
-      path === "/" ||
-      path.startsWith("/members") ||
-      path.startsWith("/employees") ||
-      path.startsWith("/settings") ||
-      path.startsWith("/support") ||
-      path.startsWith("/onboarding");
+    const shouldCheckTenant = !isPublicPath(location.pathname);
 
     if (!shouldCheckTenant) {
       setTenantStatus((status) => (status === "idle" ? status : "idle"));
@@ -339,7 +340,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   const path = location.pathname;
-  const allowUnauthed = path === "/login" || path === "/register" || path === "/reset-password";
+  const allowUnauthed = isPublicPath(path);
   const isTenantReady = tenant?.setup_completed ?? false;
 
   let content: React.ReactNode;

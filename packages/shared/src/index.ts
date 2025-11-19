@@ -2,6 +2,7 @@ export * from "./analytics";
 export * from "./tenants";
 export * from "./memberships";
 export * from "./employees";
+export * from "./approvals";
 export * from "./workflows";
 export * from "./performance";
 export * from "./imports";

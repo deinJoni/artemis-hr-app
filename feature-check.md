@@ -20,7 +20,7 @@ HR-CORE-017 | Kalenderintegration | Anzeige von Geburtstagen, Abwesenheiten, Jub
 HR-CORE-018 | Workflow-Builder | Drag-and-Drop-Tool zum Erstellen eigener HR-Prozesse (z. B. Vertragsverlängerung, Probezeit, Gehaltsanpassung). | Automatisierung | 2 | Workflows & Automation | TRUE |
 HR-CORE-019 | Dokumenten-Automation | Automatische Erstellung von Arbeitsverträgen, Zeugnissen oder Bescheinigungen auf Basis von Templates. | Dokumente | 2 |  | FALSE |
 HR-CORE-020 | Automatische Erinnerungen | Erinnerungen bei Probezeitende, Vertragsablauf, Jubiläum, Schulungen, Pflichtnachweisen. | Workflows | 2 |  | FALSE |
-HR-CORE-021 | Genehmigungs-Workflows | Digitale Genehmigungen für Urlaub, Equipment, Weiterbildung, Gehaltsänderungen etc. | Workflows | 2 | Leave Approval Workflow & Time Approvals | TRUE |
+HR-CORE-021 | Genehmigungs-Workflows | Digitale Genehmigungen für Urlaub, Equipment, Weiterbildung, Gehaltsänderungen etc. | Workflows | 2 | Leave/Time/Equipment Approval Workflows | TRUE |
 HR-CORE-022 | Chat- und Kommunikationsmodul | Interner Chat für Mitarbeitende, Teams und HR mit Datei-Upload. | Kommunikation | 2 |  | FALSE |
 HR-CORE-023 | HR-Chatbot | KI-basierter Bot für Standardanfragen (z. B. „Wie viele Urlaubstage habe ich?"). | Kommunikation | 2 |  | FALSE |
 HR-CORE-024 | Aufgabenmanagement | HR, Manager und Mitarbeiter erhalten automatisierte To-Dos und Fortschrittsanzeigen. | Workflows | 2 |  | FALSE |

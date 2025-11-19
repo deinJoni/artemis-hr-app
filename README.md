@@ -28,6 +28,7 @@ Artemis is a workforce experience sandbox that brings onboarding, people operati
 - Team views for managers: check-in feed, goal reviews, and team calendar overlay.
 - Workflow builder and goal-setting experiences powered by shared schemas to stay type-safe.
 - Auth, session persistence, and API calls wired to Supabase with graceful fallback states.
+- Unified approvals hub that surfaces leave, time, equipment, training, and compensation workflows with inline decision dialogs.
 
 ### Backend (`apps/backend`)
 - Zero-trust Supabase JWT verification, per-request user clients, and tenant-aware authorization helpers.
@@ -43,6 +44,7 @@ Artemis is a workforce experience sandbox that brings onboarding, people operati
 - **Time & Attendance Management**: Comprehensive time tracking with clock in/out, manual entries, overtime calculation, and manager approval workflows.
 - **Team Calendar & Reporting**: Manager dashboard with team calendar views, time summaries, and CSV export capabilities.
 - **Leave & Absence Management**: Complete leave management system with configurable leave types, balance tracking, holiday calendars, and multi-level approval workflows.
+- **Cross-Functional Approvals**: Equipment, training, and salary change APIs with shared schemas, audit-ready decision logging, and Supabase-backed permissions.
 - Workflow drafting, publishing, and retrieval backed by shared validation schemas.
 
 ### Shared Library (`packages/shared`)
@@ -783,6 +785,52 @@ The enhanced employee schema includes 20+ structured fields:
 - Maximum leave duration validation
 - Export capabilities for compliance reporting
 
+## Cross-Functional Approval Workflows
+
+### Equipment Requests
+- Dedicated approval lane that captures hardware type, specs, urgency, and accessory needs.
+- Needed-by dates generate SLA-style badges so managers can triage quickly.
+- Cost and currency fields roll into the audit payload and appear in the UI to highlight spend.
+- Attachments (quotes, ergonomic assessments, provisioning lists) persist with the request.
+
+### Training & Development Approvals
+- Structured details for course name, provider, format (virtual, in-person, hybrid), and target dates.
+- Tracks duration, tuition investment, and the stated business outcome for transparent ROI.
+- Inline justification context so approvers can compare against L&D budgets before deciding.
+
+### Salary Change Approvals
+- Captures current vs. proposed salary, currency, effective date, and computed raise deltas.
+- Stores performance summary snippets and optional promotion context for HRBPs.
+- Supports approval notes/denial reasons that automatically feed the audit log.
+
+### Shared Data Model & APIs
+- `approval_requests`: Supabase table with JSON `details`, attachments, needed-by dates, requester/approver metadata, and RLS powered by `approvals.submit` / `approvals.manage` permissions.
+- `approval_request_summary` view enriches each row with employee and department data for quick display.
+- Endpoints:
+  - `GET /api/approvals/requests?status=pending&category=equipment|training|salary_change|all` – unified queue filtered by type/status.
+  - `POST /api/approvals/requests` – submission endpoint that enforces tenant membership, schema validation, and audit defaults.
+  - `PUT /api/approvals/requests/:id/decision` – approve/deny with decision reason requirements baked in.
+- Seeds provision three realistic requests (one per category) per tenant so the UI is never empty after bootstrap.
+
+### Frontend Experience
+- `CrossFunctionalApprovalsList` renders cross-functional approvals with category-aware detail panels, attachments, requester cards, and deadline badges.
+- The `/approvals` route now combines Time, Leave, and Equipment/Training/Salary actions in a single workspace.
+- Dialog-driven approve/deny flows enforce contextual notes, reuse the shared toast system, and optimistically update the list.
+
+### Permissions & Validation
+
+| Role | Submit Requests (`approvals.submit`) | Approve Requests (`approvals.manage`) |
+|------|-------------------------------------|--------------------------------------|
+| **Owner** | ✅ | ✅ |
+| **Admin** | ✅ | ✅ |
+| **People Ops** | ✅ | ✅ |
+| **Manager** | ✅ | ✅ |
+| **Employee** | ✅ | ❌ |
+
+- Zod schemas (`ApprovalRequestSchema`, `ApprovalDecisionInputSchema`, etc.) live in `@vibe/shared` so both apps validate the same payloads.
+- RLS protects the table, preventing cross-tenant reads/writes without explicit permissions.
+- Decision timestamps, approver IDs, and optional notes are stored for every action to satisfy audit requirements.
+
 ## Recent Bug Fixes (Phase 1 - January 2025)
 
 ### Critical Fixes
@@ -928,6 +976,15 @@ The enhanced employee schema includes 20+ structured fields:
   - ✅ Pending count badge shows: "0 pending"
   - ✅ UI components render correctly
   - ⏳ Approval/denial actions not testable (no pending entries available)
+
+### Equipment & Other Approvals Workflow ✅
+- **Location:** `/approvals`
+- **Test Results:**
+  - ✅ Category cards render for Equipment, Training, and Salary Changes with seeded requests.
+  - ✅ Detail panels display request-specific metadata (costs, courses, salary deltas, attachments).
+  - ✅ Approve/deny dialogs enforce optional approval notes and required denial reasons.
+  - ✅ Buttons disable while API calls are in-flight to prevent double submissions.
+  - ⏳ Approval API smoke test pending (manual action requires seeded Supabase auth session).
 
 ### Employee Bulk Actions ✅
 - **Location:** `/employees`

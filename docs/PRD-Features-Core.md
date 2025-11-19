@@ -177,11 +177,14 @@ Artemis is a comprehensive workforce experience platform that consolidates HR op
 - **Features**:
   - Leave request approvals
   - Time entry approvals
+  - Equipment provisioning approvals
+  - Training & development approvals
+  - Salary change approvals
   - Multi-level approval chains
   - Conditional routing
   - Email notifications
   - Bulk approval actions
-- **Status**: ✅ Implemented (Leave Approval Workflow & Time Approvals)
+- **Status**: ✅ Implemented (Leave, Time, and Equipment/Training/Salary Approvals)
 
 #### 6. Onboarding & Offboarding
 
@@ -646,4 +649,3 @@ Artemis is a comprehensive workforce experience platform that consolidates HR op
 **Document Version**: 1.0  
 **Last Updated**: January 2025  
 **Status**: Active Development
-

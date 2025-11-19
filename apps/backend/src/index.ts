@@ -18,6 +18,7 @@ import { registerEquipmentRoutes } from './routes/equipment'
 import { registerAccessRoutes } from './routes/access'
 import { registerRecruitingRoutes } from './routes/recruiting'
 import { registerFeatureRoutes } from './routes/features'
+import { registerApprovalRoutes } from './routes/approvals'
 import { registerChatRoutes } from './features/chat/router'
 import { corsMiddleware } from './middleware/cors'
 
@@ -47,6 +48,7 @@ registerEquipmentRoutes(app)
 registerAccessRoutes(app)
 registerRecruitingRoutes(app)
 registerFeatureRoutes(app)
+registerApprovalRoutes(app)
 registerChatRoutes(app)
 
 // Catch-all 404 handler for debugging

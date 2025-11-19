@@ -1,3 +1,4 @@
+import './polyfills/abort-signal-any'
 import app from './index'
 import { supabaseAdmin } from './lib/supabase'
 import { WorkflowEngine } from './lib/workflow-engine'
