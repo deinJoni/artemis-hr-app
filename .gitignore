@@ -66,3 +66,4 @@ supabase/docker/
 *.sqlite
 *.db
 *.db-journal
+.vercel
