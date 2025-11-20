@@ -180,20 +180,12 @@ export async function generateDummyEmployees(
       // Validate with schema
       const validated = EmployeeCreateInputSchema.parse(employeeData)
 
-      // Pre-generate employee_number with randomness to avoid race conditions
-      // Format: EMP-YYYY-TTTTTT-RRRR (year, timestamp suffix, random suffix)
-      const year = new Date().getFullYear()
-      const timestamp = Date.now().toString().slice(-6) // Last 6 digits of timestamp
-      const randomSuffix = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
-      const employeeNumber = `EMP-${year}-${timestamp}-${randomSuffix}`
-
       // Create employee record
       const insertPayload: Database['public']['Tables']['employees']['Insert'] = {
         tenant_id: validated.tenant_id,
         email: validated.email,
         name: validated.name,
         user_id: userId,
-        employee_number: employeeNumber, // Pre-generate to bypass trigger and avoid race conditions
         manager_id: validated.manager_id ?? null,
         job_title: validated.job_title ?? null,
         department_id: validated.department_id ?? null,
