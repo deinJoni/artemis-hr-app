@@ -167,7 +167,30 @@ comment on column public.employees.dotted_line_manager_id is
   'Optional dotted-line manager for matrix organization reporting relationships';
 
 -- ==============================================
--- 5. DEPARTMENTS TABLE
+-- 5. OFFICE LOCATIONS TABLE
+-- ==============================================
+
+create table if not exists public.office_locations (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  name text not null,
+  address jsonb,
+  timezone text not null default 'UTC',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, name)
+);
+
+create index if not exists office_locations_tenant_idx on public.office_locations (tenant_id);
+create index if not exists office_locations_name_idx on public.office_locations (tenant_id, name);
+
+-- Add foreign key constraint for office_location_id in employees
+alter table public.employees
+  add constraint employees_office_location_fk
+  foreign key (office_location_id) references public.office_locations(id) on delete set null;
+
+-- ==============================================
+-- 6. DEPARTMENTS TABLE
 -- ==============================================
 
 create table if not exists public.departments (
@@ -198,29 +221,6 @@ comment on column public.departments.office_location_id is
 alter table public.employees
   add constraint employees_department_fk 
   foreign key (department_id) references public.departments(id) on delete set null;
-
--- ==============================================
--- 6. OFFICE LOCATIONS TABLE
--- ==============================================
-
-create table if not exists public.office_locations (
-  id uuid primary key default gen_random_uuid(),
-  tenant_id uuid not null references public.tenants(id) on delete cascade,
-  name text not null,
-  address jsonb,
-  timezone text not null default 'UTC',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (tenant_id, name)
-);
-
-create index if not exists office_locations_tenant_idx on public.office_locations (tenant_id);
-create index if not exists office_locations_name_idx on public.office_locations (tenant_id, name);
-
--- Add foreign key constraint for office_location_id in employees
-alter table public.employees
-  add constraint employees_office_location_fk
-  foreign key (office_location_id) references public.office_locations(id) on delete set null;
 
 -- ==============================================
 -- 7. TEAMS TABLE

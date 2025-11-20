@@ -4642,6 +4642,7 @@ export type Database = {
           custom_fields: Json | null
           date_of_birth: string | null
           department_id: string | null
+          dotted_line_manager_id: string | null
           email: string | null
           emergency_contact_name: string | null
           emergency_contact_phone: string | null
@@ -4676,6 +4677,7 @@ export type Database = {
           custom_fields?: Json | null
           date_of_birth?: string | null
           department_id?: string | null
+          dotted_line_manager_id?: string | null
           email?: string | null
           emergency_contact_name?: string | null
           emergency_contact_phone?: string | null
@@ -4710,6 +4712,7 @@ export type Database = {
           custom_fields?: Json | null
           date_of_birth?: string | null
           department_id?: string | null
+          dotted_line_manager_id?: string | null
           email?: string | null
           emergency_contact_name?: string | null
           emergency_contact_phone?: string | null
@@ -4759,6 +4762,62 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "org_structure_view"
             referencedColumns: ["department_id_full"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_goal_summaries"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "employee_summary"
+            referencedColumns: ["manager_id"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "employees_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "org_structure_view"
+            referencedColumns: ["dotted_line_manager_employee_id"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "org_structure_view"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employees_dotted_line_manager_id_fkey"
+            columns: ["dotted_line_manager_id"]
+            isOneToOne: false
+            referencedRelation: "org_structure_view"
+            referencedColumns: ["manager_employee_id"]
           },
           {
             foreignKeyName: "employees_manager_id_fkey"
