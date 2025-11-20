@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "bun --env-file=../../.env.local run --hot src/server.ts",
     "start": "bun --env-file=../../.env.local run src/server.ts",
-    "build": "tsc --noEmit && node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/.placeholder','');\"",
+    "build": "tsc -p tsconfig.build.json",
     "lint": "eslint ./src --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "echo 'no tests yet' && exit 0",
