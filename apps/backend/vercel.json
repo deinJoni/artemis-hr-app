@@ -1,11 +1,4 @@
 {
-  "outputDirectory": ".",
-  "functions": {
-    "api/[[...route]].ts": {
-      "runtime": "nodejs20.x",
-      "includeFiles": "src/**"
-    }
-  },
   "rewrites": [
     {
       "source": "/",
