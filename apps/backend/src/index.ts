@@ -29,7 +29,7 @@ const app = new Hono<Env>()
 
 app.use('*', corsMiddleware)
 
-app.get('/', (c) => c.text('Hello Hono!'))
+app.get('/', (c) => c.text('Hello Honoo!'))
 app.get('/api', (c) => c.text('Hello Hono!'))
 app.get('/api/', (c) => c.text('Hello Hono!'))
 
