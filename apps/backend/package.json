@@ -19,6 +19,7 @@
     "hono": "^4.10.1",
     "langchain": "^1.0.6",
     "nanoid": "^3.3.11",
+    "shared": "^0.2.0",
     "zod": "^4.1.12",
     "zod-to-json-schema": "^3.25.0"
   },
