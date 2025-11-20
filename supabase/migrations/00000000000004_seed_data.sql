@@ -50,7 +50,12 @@ insert into public.permissions (key) values
   ('recruiting.jobs.read'),
   ('recruiting.jobs.write'),
   ('recruiting.candidates.read'),
-  ('recruiting.candidates.write')
+  ('recruiting.candidates.write'),
+  ('approvals.submit'),
+  ('approvals.manage'),
+  ('communications.news.read'),
+  ('communications.news.manage'),
+  ('communications.news.publish')
 on conflict do nothing;
 
 -- ==============================================
@@ -104,6 +109,11 @@ insert into public.role_permissions (role, permission_key) values
   ('owner', 'recruiting.jobs.write'),
   ('owner', 'recruiting.candidates.read'),
   ('owner', 'recruiting.candidates.write'),
+  ('owner', 'approvals.submit'),
+  ('owner', 'approvals.manage'),
+  ('owner', 'communications.news.read'),
+  ('owner', 'communications.news.manage'),
+  ('owner', 'communications.news.publish'),
   
   -- Admin: all permissions
   ('admin', 'members.manage'),
@@ -151,6 +161,11 @@ insert into public.role_permissions (role, permission_key) values
   ('admin', 'recruiting.jobs.write'),
   ('admin', 'recruiting.candidates.read'),
   ('admin', 'recruiting.candidates.write'),
+  ('admin', 'approvals.submit'),
+  ('admin', 'approvals.manage'),
+  ('admin', 'communications.news.read'),
+  ('admin', 'communications.news.manage'),
+  ('admin', 'communications.news.publish'),
   
   -- People Ops: most permissions except compensation write
   ('people_ops', 'employees.read'),
@@ -188,6 +203,11 @@ insert into public.role_permissions (role, permission_key) values
   ('people_ops', 'recruiting.jobs.write'),
   ('people_ops', 'recruiting.candidates.read'),
   ('people_ops', 'recruiting.candidates.write'),
+  ('people_ops', 'approvals.submit'),
+  ('people_ops', 'approvals.manage'),
+  ('people_ops', 'communications.news.read'),
+  ('people_ops', 'communications.news.manage'),
+  ('people_ops', 'communications.news.publish'),
   
   -- Manager: limited permissions
   ('manager', 'employees.read'),
@@ -213,13 +233,18 @@ insert into public.role_permissions (role, permission_key) values
   ('manager', 'calendar.read'),
   ('manager', 'leave.view_team_calendar'),
   ('manager', 'leave.approve_requests'),
+  ('manager', 'approvals.submit'),
+  ('manager', 'approvals.manage'),
+  ('manager', 'communications.news.read'),
   
   -- Employee: basic permissions
   ('employee', 'employees.read'),
   ('employee', 'workflows.read'),
   ('employee', 'office_locations.read'),
   ('employee', 'teams.read'),
-  ('employee', 'overtime.view')
+  ('employee', 'overtime.view'),
+  ('employee', 'approvals.submit'),
+  ('employee', 'communications.news.read')
 on conflict do nothing;
 
 -- ==============================================
@@ -350,6 +375,4 @@ from public.tenants t
 where not exists (
   select 1 from public.overtime_rules otr where otr.tenant_id = t.id and otr.is_default = true
 );
-
-
 

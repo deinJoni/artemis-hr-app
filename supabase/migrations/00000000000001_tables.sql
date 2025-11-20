@@ -118,6 +118,7 @@ create table if not exists public.employees (
   email text not null,
   name text not null,
   manager_id uuid references public.employees(id),
+  dotted_line_manager_id uuid references public.employees(id) on delete set null,
   user_id uuid references auth.users(id) on delete set null,
   employee_number text unique,
   date_of_birth date,
@@ -153,8 +154,17 @@ create index if not exists employees_tenant_status_idx on public.employees (tena
 create index if not exists employees_tenant_department_idx on public.employees (tenant_id, department_id);
 create index if not exists employees_employee_number_idx on public.employees (employee_number);
 create index if not exists employees_office_location_idx on public.employees (tenant_id, office_location_id);
+create index if not exists employees_dotted_line_manager_idx
+  on public.employees (tenant_id, dotted_line_manager_id)
+  where dotted_line_manager_id is not null;
 create index if not exists employees_sensitive_flags_idx on public.employees (tenant_id)
 where sensitive_data_flags is not null and sensitive_data_flags != '{}'::jsonb;
+create index if not exists employees_manager_hierarchy_idx
+  on public.employees (tenant_id, manager_id, status)
+  where status = 'active' and manager_id is not null;
+
+comment on column public.employees.dotted_line_manager_id is
+  'Optional dotted-line manager for matrix organization reporting relationships';
 
 -- ==============================================
 -- 5. DEPARTMENTS TABLE
@@ -168,6 +178,7 @@ create table if not exists public.departments (
   parent_id uuid references public.departments(id) on delete set null,
   head_employee_id uuid references public.employees(id) on delete set null,
   cost_center text,
+  office_location_id uuid references public.office_locations(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (tenant_id, name)
@@ -176,6 +187,12 @@ create table if not exists public.departments (
 create index if not exists departments_tenant_idx on public.departments (tenant_id);
 create index if not exists departments_parent_idx on public.departments (parent_id);
 create index if not exists departments_head_idx on public.departments (head_employee_id);
+create index if not exists departments_location_idx
+  on public.departments (tenant_id, office_location_id)
+  where office_location_id is not null;
+
+comment on column public.departments.office_location_id is
+  'Optional reference to the department''s primary office location';
 
 -- Add foreign key constraint for employees after departments table exists
 alter table public.employees
@@ -216,6 +233,7 @@ create table if not exists public.teams (
   description text,
   team_lead_id uuid references public.employees(id) on delete set null,
   department_id uuid references public.departments(id) on delete set null,
+  office_location_id uuid references public.office_locations(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (tenant_id, name)
@@ -224,6 +242,12 @@ create table if not exists public.teams (
 create index if not exists teams_tenant_idx on public.teams (tenant_id);
 create index if not exists teams_department_idx on public.teams (tenant_id, department_id);
 create index if not exists teams_lead_idx on public.teams (team_lead_id);
+create index if not exists teams_location_idx
+  on public.teams (tenant_id, office_location_id)
+  where office_location_id is not null;
+
+comment on column public.teams.office_location_id is
+  'Optional reference to the team''s primary office location';
 
 create table if not exists public.team_members (
   team_id uuid not null references public.teams(id) on delete cascade,
@@ -291,7 +315,17 @@ create table if not exists public.employee_documents (
   version integer not null default 1,
   previous_version_id uuid references public.employee_documents(id),
   is_current boolean not null default true,
-  category text check (category in ('contract', 'certification', 'id_document', 'performance', 'medical', 'other')),
+  category text check (category in (
+    'contract',
+    'supplemental_agreement',
+    'disciplinary_warning',
+    'reference_letter',
+    'certification',
+    'id_document',
+    'performance',
+    'medical',
+    'other'
+  )),
   expiry_date date,
   updated_at timestamptz not null default now()
 );
@@ -366,7 +400,57 @@ create index if not exists employee_status_history_status_idx
   on public.employee_status_history (status, effective_date desc);
 
 -- ==============================================
--- 13.5. EMPLOYEE HELPER FUNCTIONS (needed by triggers)
+-- 13.5. EMPLOYEE NOTES
+-- ==============================================
+
+create or replace function public.handle_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create table if not exists public.employee_notes (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  employee_id uuid not null references public.employees(id) on delete cascade,
+  body text not null check (length(body) <= 5000),
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists employee_notes_employee_idx
+  on public.employee_notes (tenant_id, employee_id, created_at desc);
+
+create index if not exists employee_notes_created_by_idx
+  on public.employee_notes (created_by, created_at desc);
+
+create trigger set_updated_at_on_employee_notes
+  before update on public.employee_notes
+  for each row
+  execute procedure public.handle_updated_at();
+
+alter table public.employee_notes enable row level security;
+
+create policy employee_notes_read
+on public.employee_notes
+for select
+to authenticated
+using ( public.app_has_permission('employees.documents.read', tenant_id) );
+
+create policy employee_notes_write
+on public.employee_notes
+for all
+to authenticated
+using ( public.app_has_permission('employees.documents.write', tenant_id) )
+with check ( public.app_has_permission('employees.documents.write', tenant_id) );
+
+-- ==============================================
+-- 13.6. EMPLOYEE HELPER FUNCTIONS (needed by triggers)
 -- ==============================================
 
 create or replace function public.calculate_profile_completion(employee_row public.employees)
@@ -442,6 +526,75 @@ begin
   return new;
 end;
 $$;
+
+-- ==============================================
+-- 13.7. EMPLOYEES PUBLIC VIEW
+-- ==============================================
+
+create or replace view public.employees_public
+with (security_barrier = true)
+as
+select
+  e.id,
+  e.tenant_id,
+  e.email,
+  e.name,
+  e.manager_id,
+  e.dotted_line_manager_id,
+  e.user_id,
+  e.employee_number,
+  e.date_of_birth,
+  e.nationality,
+  e.phone_personal,
+  e.phone_work,
+  e.emergency_contact_name,
+  e.emergency_contact_phone,
+  e.home_address,
+  e.job_title,
+  e.department_id,
+  e.employment_type,
+  e.work_location,
+  e.start_date,
+  e.end_date,
+  e.status,
+  case
+    when public.app_has_permission('employees.compensation.read', e.tenant_id)
+      then e.salary_amount
+    else null
+  end as salary_amount,
+  case
+    when public.app_has_permission('employees.compensation.read', e.tenant_id)
+      then e.salary_currency
+    else null
+  end as salary_currency,
+  case
+    when public.app_has_permission('employees.compensation.read', e.tenant_id)
+      then e.salary_frequency
+    else null
+  end as salary_frequency,
+  case
+    when public.app_has_permission('employees.sensitive.read', e.tenant_id)
+      then e.bank_account_encrypted
+    else null
+  end as bank_account_encrypted,
+  case
+    when public.app_has_permission('employees.sensitive.read', e.tenant_id)
+      then e.tax_id_encrypted
+    else null
+  end as tax_id_encrypted,
+  e.profile_completion_pct,
+  e.office_location_id,
+  e.sensitive_data_flags,
+  e.created_at,
+  e.updated_at,
+  e.custom_fields
+from public.employees e;
+
+comment on view public.employees_public is
+  'Employee records with compensation and sensitive fields automatically masked unless the current user has the appropriate permission.';
+
+grant select on public.employees_public to authenticated;
+grant select on public.employees_public to service_role;
 
 -- ==============================================
 -- 14. WORKFLOW TABLES
@@ -545,6 +698,7 @@ create table if not exists public.workflow_run_steps (
   run_id uuid not null references public.workflow_runs(id) on delete cascade,
   node_id uuid not null references public.workflow_nodes(id),
   status text not null default 'pending' check (status in ('pending','queued','waiting_input','in_progress','completed','failed','canceled')),
+  task_type text not null default 'general' check (task_type in ('general','document','form')),
   assigned_to jsonb,
   due_at timestamptz,
   payload jsonb,
@@ -557,6 +711,8 @@ create table if not exists public.workflow_run_steps (
 
 create index if not exists workflow_run_steps_run_idx
   on public.workflow_run_steps (run_id, status);
+create index if not exists workflow_run_steps_task_type_idx
+  on public.workflow_run_steps (task_type);
 
 create table if not exists public.workflow_action_queue (
   id uuid primary key default gen_random_uuid(),
@@ -583,6 +739,180 @@ create table if not exists public.workflow_events (
 
 create index if not exists workflow_events_run_idx
   on public.workflow_events (run_id, created_at);
+
+-- ==============================================
+-- 14.5 FEATURE FLAG INFRASTRUCTURE
+-- ==============================================
+
+create table if not exists public.feature_groups (
+  id uuid primary key default gen_random_uuid(),
+  key text not null unique,
+  name text not null,
+  description text,
+  sort_order smallint not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.feature_groups is 'Logical grouping of product features (Core HR, Time & Attendance, etc).';
+comment on column public.feature_groups.key is 'Stable identifier used by backend/frontend to bucket related toggles.';
+
+create trigger set_feature_groups_updated_at
+  before update on public.feature_groups
+  for each row execute procedure public.set_updated_at();
+
+alter table public.feature_groups enable row level security;
+
+create policy feature_groups_select_authenticated
+  on public.feature_groups
+  for select
+  to authenticated
+  using (true);
+
+create table if not exists public.features (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  name text not null,
+  description text,
+  group_id uuid not null references public.feature_groups(id) on delete cascade,
+  default_enabled boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.features is 'Individual feature toggles addressable by slug.';
+comment on column public.features.slug is 'Human-readable unique slug used throughout the stack.';
+
+create index if not exists features_group_idx on public.features (group_id);
+
+create trigger set_features_updated_at
+  before update on public.features
+  for each row execute procedure public.set_updated_at();
+
+alter table public.features enable row level security;
+
+create policy features_select_authenticated
+  on public.features
+  for select
+  to authenticated
+  using (true);
+
+create table if not exists public.tenant_feature_flags (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  feature_id uuid not null references public.features(id) on delete cascade,
+  enabled boolean not null,
+  reason text,
+  notes text,
+  toggled_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint tenant_feature_flags_unique unique (tenant_id, feature_id)
+);
+
+comment on table public.tenant_feature_flags is 'Stores tenant-specific overrides for default feature behavior.';
+
+create index if not exists tenant_feature_flags_tenant_idx
+  on public.tenant_feature_flags (tenant_id);
+create index if not exists tenant_feature_flags_feature_idx
+  on public.tenant_feature_flags (feature_id);
+
+create trigger set_tenant_feature_flags_updated_at
+  before update on public.tenant_feature_flags
+  for each row execute procedure public.set_updated_at();
+
+alter table public.tenant_feature_flags enable row level security;
+
+create policy tenant_feature_flags_select_authenticated
+  on public.tenant_feature_flags
+  for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.memberships m
+      where m.user_id = public.app_current_user_id()
+        and m.tenant_id = tenant_id
+    )
+  );
+
+create table if not exists public.superadmins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  granted_by uuid references auth.users(id),
+  granted_at timestamptz not null default now(),
+  notes text
+);
+
+comment on table public.superadmins is 'Users with cross-tenant access for feature management.';
+
+alter table public.superadmins enable row level security;
+
+create policy superadmins_select_authenticated
+  on public.superadmins
+  for select
+  to authenticated
+  using (public.app_current_user_id() = user_id);
+
+create or replace function public.app_get_tenant_features(p_tenant uuid)
+returns table (
+  feature_id uuid,
+  slug text,
+  name text,
+  description text,
+  group_key text,
+  group_name text,
+  default_enabled boolean,
+  enabled boolean,
+  source text
+)
+language sql
+stable
+as $$
+  select
+    f.id as feature_id,
+    f.slug,
+    f.name,
+    f.description,
+    fg.key as group_key,
+    fg.name as group_name,
+    f.default_enabled,
+    coalesce(tff.enabled, f.default_enabled) as enabled,
+    case
+      when tff.id is not null then 'tenant_override'
+      else 'default'
+    end as source
+  from public.features f
+  join public.feature_groups fg on fg.id = f.group_id
+  left join public.tenant_feature_flags tff
+    on tff.feature_id = f.id
+   and tff.tenant_id = p_tenant
+  order by fg.sort_order, f.created_at;
+$$;
+
+comment on function public.app_get_tenant_features(p_tenant uuid) is 'Returns effective feature flags for the provided tenant id.';
+
+insert into public.feature_groups (key, name, description, sort_order)
+values
+  ('core_hr', 'Core HR & Employee Management', 'Employee profiles, departments, teams, documents, and bulk operations.', 10),
+  ('time_attendance', 'Time & Attendance', 'Clock-in/out, manual entries, overtime and approvals.', 20),
+  ('communications', 'Communications & Engagement', 'Company news, announcements, and other internal communications.', 25),
+  ('leave_absence', 'Leave & Absence', 'Leave requests, balances, approvals, and calendars.', 30),
+  ('recruiting_ats', 'Recruiting & ATS', 'Jobs, pipelines, analytics, and recruiting workflows.', 40),
+  ('workflows_automation', 'Workflows & Automation', 'Workflow builder, automation triggers, and goal tracking.', 50)
+on conflict (key) do nothing;
+
+with group_lookup as (
+  select key, id from public.feature_groups
+)
+insert into public.features (slug, name, description, group_id, default_enabled)
+values
+  ('core_hr', 'Core HR Suite', 'Enables employee records, departments, teams, and related dashboards.', (select id from group_lookup where key = 'core_hr'), true),
+  ('time_attendance', 'Time & Attendance', 'Enables calendar, approvals, overtime widgets, and My Time modules.', (select id from group_lookup where key = 'time_attendance'), true),
+  ('leave_management', 'Leave & Absence', 'Enables leave requests, balances, admin tools, and analytics.', (select id from group_lookup where key = 'leave_absence'), true),
+  ('recruiting', 'Recruiting & ATS', 'Enables recruiting dashboards, jobs, and analytics routes.', (select id from group_lookup where key = 'recruiting_ats'), false),
+  ('workflows', 'Workflows & Automation', 'Enables workflow builder and automation routes.', (select id from group_lookup where key = 'workflows_automation'), true),
+  ('company_news', 'Company News', 'Enables the company news publishing workspace and dashboard surface.', (select id from group_lookup where key = 'communications'), true)
+on conflict (slug) do nothing;
 
 create table if not exists public.employee_journey_views (
   run_id uuid primary key references public.workflow_runs(id) on delete cascade,
@@ -827,6 +1157,41 @@ create index if not exists leave_types_tenant_idx on public.leave_types (tenant_
 create index if not exists leave_types_active_idx on public.leave_types (tenant_id, is_active)
 where is_active = true;
 
+create or replace function public.auto_seed_leave_types()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.leave_types (
+    tenant_id,
+    name,
+    code,
+    requires_approval,
+    requires_certificate,
+    allow_negative_balance,
+    enforce_minimum_entitlement,
+    color,
+    is_active
+  )
+  values
+    (new.id, 'Vacation', 'VACATION', true, false, false, false, '#3B82F6', true),
+    (new.id, 'Sick Leave', 'SICK', false, true, true, false, '#EF4444', true),
+    (new.id, 'Personal Leave', 'PERSONAL', true, false, false, false, '#10B981', true)
+  on conflict (tenant_id, code) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists auto_seed_leave_types on public.tenants;
+
+create trigger auto_seed_leave_types
+after insert on public.tenants
+for each row
+execute function public.auto_seed_leave_types();
+
 comment on column public.leave_types.minimum_entitlement_days is 'Minimum number of days that must be taken (e.g., EU requirement of 20 days for annual leave)';
 comment on column public.leave_types.enforce_minimum_entitlement is 'Whether to enforce minimum entitlement check during leave requests';
 
@@ -1026,6 +1391,326 @@ create index if not exists exit_interviews_conducted_at_idx on public.exit_inter
 create index if not exists exit_interviews_reason_idx on public.exit_interviews (tenant_id, reason_for_leaving);
 
 -- ==============================================
+-- 17. CROSS-FUNCTIONAL APPROVAL REQUESTS
+-- ==============================================
+
+create table if not exists public.approval_requests (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  category text not null check (category in ('equipment','training','salary_change','profile_change')),
+  status text not null default 'pending' check (status in ('pending','approved','denied','cancelled')),
+  title text not null,
+  summary text,
+  justification text not null,
+  details jsonb not null default '{}'::jsonb,
+  attachments jsonb not null default '[]'::jsonb,
+  needed_by date,
+  requested_by_user_id uuid not null references auth.users(id) on delete cascade,
+  requested_by_employee_id uuid references public.employees(id) on delete set null,
+  approver_user_id uuid references auth.users(id) on delete set null,
+  decision_reason text,
+  requested_at timestamptz not null default now(),
+  decided_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists approval_requests_tenant_idx on public.approval_requests (tenant_id);
+create index if not exists approval_requests_status_idx on public.approval_requests (tenant_id, status);
+create index if not exists approval_requests_category_idx on public.approval_requests (tenant_id, category);
+
+create trigger set_updated_at_on_approval_requests
+before update on public.approval_requests
+for each row execute function public.set_updated_at();
+
+alter table public.approval_requests enable row level security;
+
+create policy approval_requests_select_manage on public.approval_requests
+for select to authenticated
+using (public.app_has_permission('approvals.manage', tenant_id));
+
+create policy approval_requests_insert_submit on public.approval_requests
+for insert to authenticated
+with check (public.app_has_permission('approvals.submit', tenant_id));
+
+create policy approval_requests_update_manage on public.approval_requests
+for update to authenticated
+using (public.app_has_permission('approvals.manage', tenant_id))
+with check (public.app_has_permission('approvals.manage', tenant_id));
+
+create or replace view public.approval_request_summary as
+select
+  ar.id,
+  ar.tenant_id,
+  ar.category,
+  ar.status,
+  ar.title,
+  ar.summary,
+  ar.justification,
+  ar.details,
+  ar.attachments,
+  ar.needed_by,
+  ar.requested_by_user_id,
+  ar.requested_by_employee_id,
+  ar.approver_user_id,
+  ar.decision_reason,
+  ar.requested_at,
+  ar.decided_at,
+  ar.created_at,
+  ar.updated_at,
+  e.name as requestor_name,
+  e.job_title as requestor_job_title,
+  d.name as department_name
+from public.approval_requests ar
+left join public.employees e on e.id = ar.requested_by_employee_id
+left join public.departments d on d.id = e.department_id;
+
+insert into public.approval_requests (
+  tenant_id,
+  category,
+  status,
+  title,
+  summary,
+  justification,
+  details,
+  attachments,
+  needed_by,
+  requested_by_user_id,
+  requested_by_employee_id,
+  requested_at
+)
+select
+  t.id,
+  'equipment',
+  'pending',
+  'MacBook Pro 16" upgrade',
+  'Design lead needs a spec bump before the Q3 rebrand sprint',
+  'Current hardware is throttling when rendering motion assets. Upgrading to a 16" Pro keeps production on schedule.',
+  jsonb_build_object(
+    'itemType','Laptop',
+    'specification','M3 Max, 64GB RAM, 2TB SSD',
+    'justification','Required for heavy motion rendering workloads',
+    'estimatedCost', 4299,
+    'currency','USD',
+    'urgency','high',
+    'neededBy', to_char(now() + interval '10 day','YYYY-MM-DD')
+  ),
+  '[]'::jsonb,
+  (now() + interval '10 day')::date,
+  e.user_id,
+  e.id,
+  now() - interval '2 day'
+from public.tenants t
+cross join lateral (
+  select e.id, e.user_id
+  from public.employees e
+  where e.tenant_id = t.id
+  order by e.created_at
+  limit 1
+) as e
+where not exists (
+  select 1 from public.approval_requests existing
+  where existing.tenant_id = t.id and existing.category = 'equipment'
+);
+
+insert into public.approval_requests (
+  tenant_id,
+  category,
+  status,
+  title,
+  summary,
+  justification,
+  details,
+  attachments,
+  needed_by,
+  requested_by_user_id,
+  requested_by_employee_id,
+  requested_at
+)
+select
+  t.id,
+  'training',
+  'pending',
+  'Product strategy certification',
+  'Lead PM enrollment in Reforge to prep for the platform relaunch',
+  'Training aligns the PM org on experimentation frameworks before the April launch window.',
+  jsonb_build_object(
+    'courseName','Reforge Product Strategy Sprint',
+    'provider','Reforge',
+    'schedule', to_char(now() + interval '20 day','YYYY-MM-DD'),
+    'format','virtual',
+    'estimatedCost', 1995,
+    'currency','USD',
+    'durationHours', 20,
+    'expectedOutcome','Apply advanced strategy rituals to the data platform roadmap'
+  ),
+  '[]'::jsonb,
+  (now() + interval '20 day')::date,
+  e.user_id,
+  e.id,
+  now() - interval '1 day'
+from public.tenants t
+cross join lateral (
+  select e.id, e.user_id
+  from public.employees e
+  where e.tenant_id = t.id
+  order by e.created_at desc
+  limit 1
+) as e
+where not exists (
+  select 1 from public.approval_requests existing
+  where existing.tenant_id = t.id and existing.category = 'training'
+);
+
+insert into public.approval_requests (
+  tenant_id,
+  category,
+  status,
+  title,
+  summary,
+  justification,
+  details,
+  attachments,
+  needed_by,
+  requested_by_user_id,
+  requested_by_employee_id,
+  requested_at
+)
+select
+  t.id,
+  'salary_change',
+  'pending',
+  'Senior AE promotion compensation change',
+  'Adjust base salary and commission tier after exceeding targets three quarters in a row',
+  'Move Alex Watson to the senior AE band and align compensation before the new fiscal year.',
+  jsonb_build_object(
+    'currentSalary', 115000,
+    'proposedSalary', 128000,
+    'currency','USD',
+    'effectiveDate', to_char(now() + interval '30 day','YYYY-MM-DD'),
+    'increasePercent', 0.113,
+    'performanceSummary','Closed 135% of quota across the last 3 quarters while mentoring 2 junior reps'
+  ),
+  '[]'::jsonb,
+  (now() + interval '30 day')::date,
+  e.user_id,
+  e.id,
+  now() - interval '12 hour'
+from public.tenants t
+cross join lateral (
+  select e.id, e.user_id
+  from public.employees e
+  where e.tenant_id = t.id
+  order by e.updated_at desc
+  limit 1
+) as e
+where not exists (
+  select 1 from public.approval_requests existing
+  where existing.tenant_id = t.id and existing.category = 'salary_change'
+);
+
+-- ==============================================
+-- 18. EMPLOYEE PROFILE CHANGE REQUESTS
+-- ==============================================
+
+create table if not exists public.employee_profile_change_requests (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  employee_id uuid not null references public.employees(id) on delete cascade,
+  status text not null default 'draft' check (status in ('draft','pending','approved','denied','cancelled')),
+  fields jsonb not null default '{}'::jsonb,
+  current_snapshot jsonb not null default '{}'::jsonb,
+  justification text,
+  approval_request_id uuid references public.approval_requests(id) on delete set null,
+  submitted_by_user_id uuid not null references auth.users(id) on delete cascade,
+  submitted_at timestamptz,
+  decided_at timestamptz,
+  decision_reason text,
+  approver_user_id uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists employee_profile_change_requests_employee_idx
+  on public.employee_profile_change_requests (tenant_id, employee_id, status);
+
+create unique index if not exists employee_profile_change_requests_open_unique
+  on public.employee_profile_change_requests (employee_id)
+  where status in ('draft','pending');
+
+create trigger set_updated_at_on_employee_profile_change_requests
+before update on public.employee_profile_change_requests
+for each row execute function public.set_updated_at();
+
+alter table public.employee_profile_change_requests enable row level security;
+
+create policy employee_profile_change_requests_select
+on public.employee_profile_change_requests
+for select to authenticated
+using (
+  public.app_has_permission('employees.write', tenant_id)
+  or exists (
+    select 1
+    from public.employees e
+    where e.id = employee_profile_change_requests.employee_id
+      and e.user_id = public.app_current_user_id()
+  )
+);
+
+create policy employee_profile_change_requests_insert
+on public.employee_profile_change_requests
+for insert to authenticated
+with check (
+  exists (
+    select 1
+    from public.employees e
+    where e.id = employee_profile_change_requests.employee_id
+      and e.user_id = public.app_current_user_id()
+  )
+);
+
+create policy employee_profile_change_requests_update_self
+on public.employee_profile_change_requests
+for update to authenticated
+using (
+  status = 'draft'
+  and exists (
+    select 1
+    from public.employees e
+    where e.id = employee_profile_change_requests.employee_id
+      and e.user_id = public.app_current_user_id()
+  )
+)
+with check (
+  status = 'draft'
+  and exists (
+    select 1
+    from public.employees e
+    where e.id = employee_profile_change_requests.employee_id
+      and e.user_id = public.app_current_user_id()
+  )
+);
+
+create policy employee_profile_change_requests_update_manage
+on public.employee_profile_change_requests
+for update to authenticated
+using (public.app_has_permission('employees.write', tenant_id))
+with check (public.app_has_permission('employees.write', tenant_id));
+
+create policy employee_profile_change_requests_delete_self
+on public.employee_profile_change_requests
+for delete to authenticated
+using (
+  status = 'draft'
+  and exists (
+    select 1
+    from public.employees e
+    where e.id = employee_profile_change_requests.employee_id
+      and e.user_id = public.app_current_user_id()
+  )
+);
+
+-- ==============================================
 -- 19. RECRUITING ATS TABLES
 -- ==============================================
 
@@ -1194,6 +1879,93 @@ create table if not exists public.communications (
 create index if not exists communications_tenant_candidate_idx on public.communications (tenant_id, candidate_id);
 create index if not exists communications_type_idx on public.communications (tenant_id, type);
 create index if not exists communications_sent_at_idx on public.communications (tenant_id, sent_at desc);
+
+-- ==============================================
+-- 19. COMPANY NEWS
+-- ==============================================
+
+create table if not exists public.company_news (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  title text not null,
+  summary text,
+  body text not null,
+  category text not null check (category in ('news', 'mitteilung', 'announcement')),
+  status text not null default 'draft' check (status in ('draft', 'scheduled', 'published', 'archived')),
+  publish_at timestamptz,
+  published_at timestamptz,
+  created_by uuid not null references auth.users(id) on delete set null,
+  published_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.company_news is 'Tenant-scoped internal news, announcements, and HR communications.';
+comment on column public.company_news.category is 'news = general update, mitteilung = internal memo, announcement = company-wide announcement.';
+comment on column public.company_news.status is 'draft|scheduled|published|archived lifecycle state.';
+
+create index if not exists company_news_tenant_status_idx
+  on public.company_news (tenant_id, status, coalesce(publish_at, created_at) desc);
+
+create trigger set_company_news_updated_at
+  before update on public.company_news
+  for each row execute procedure public.set_updated_at();
+
+alter table public.company_news enable row level security;
+
+create policy company_news_select_read
+  on public.company_news
+  for select
+  to authenticated
+  using (public.app_has_permission('communications.news.read', tenant_id));
+
+create policy company_news_insert_manage
+  on public.company_news
+  for insert
+  to authenticated
+  with check (public.app_has_permission('communications.news.manage', tenant_id));
+
+create policy company_news_update_manage
+  on public.company_news
+  for update
+  to authenticated
+  using (public.app_has_permission('communications.news.manage', tenant_id))
+  with check (public.app_has_permission('communications.news.manage', tenant_id));
+
+create policy company_news_delete_manage
+  on public.company_news
+  for delete
+  to authenticated
+  using (public.app_has_permission('communications.news.manage', tenant_id));
+
+create table if not exists public.company_news_activity (
+  id uuid primary key default gen_random_uuid(),
+  news_id uuid not null references public.company_news(id) on delete cascade,
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  action text not null,
+  actor_id uuid references auth.users(id) on delete set null,
+  details jsonb,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.company_news_activity is 'Audit trail for company news lifecycle events.';
+
+create index if not exists company_news_activity_news_idx
+  on public.company_news_activity (news_id, created_at desc);
+
+alter table public.company_news_activity enable row level security;
+
+create policy company_news_activity_select
+  on public.company_news_activity
+  for select
+  to authenticated
+  using (public.app_has_permission('communications.news.read', tenant_id));
+
+create policy company_news_activity_insert
+  on public.company_news_activity
+  for insert
+  to authenticated
+  with check (public.app_has_permission('communications.news.manage', tenant_id));
 
 create table if not exists public.talent_pool (
   id uuid primary key default gen_random_uuid(),
@@ -1596,1599 +2368,6 @@ after insert on public.jobs
 for each row
 execute function public.job_after_insert();
 
--- ==============================================
--- 22. ROW LEVEL SECURITY
--- ==============================================
-
--- Enable RLS on all tables
-alter table public.tenants enable row level security;
-alter table public.memberships enable row level security;
-alter table public.employees enable row level security;
-alter table public.employee_custom_field_defs enable row level security;
-alter table public.profiles enable row level security;
-alter table public.permissions enable row level security;
-alter table public.role_permissions enable row level security;
-alter table public.departments enable row level security;
-alter table public.office_locations enable row level security;
-alter table public.teams enable row level security;
-alter table public.team_members enable row level security;
-alter table public.employee_documents enable row level security;
-alter table public.document_expiry_notifications enable row level security;
-alter table public.employee_audit_log enable row level security;
-alter table public.employee_status_history enable row level security;
-alter table public.workflow_templates enable row level security;
-alter table public.workflows enable row level security;
-alter table public.workflow_versions enable row level security;
-alter table public.workflow_nodes enable row level security;
-alter table public.workflow_edges enable row level security;
-alter table public.workflow_runs enable row level security;
-alter table public.workflow_run_steps enable row level security;
-alter table public.workflow_action_queue enable row level security;
-alter table public.workflow_events enable row level security;
-alter table public.employee_journey_views enable row level security;
-alter table public.goals enable row level security;
-alter table public.goal_key_results enable row level security;
-alter table public.goal_updates enable row level security;
-alter table public.check_ins enable row level security;
-alter table public.check_in_agendas enable row level security;
-alter table public.check_in_private_notes enable row level security;
-alter table public.time_entries enable row level security;
-alter table public.overtime_balances enable row level security;
-alter table public.overtime_rules enable row level security;
-alter table public.overtime_requests enable row level security;
-alter table public.time_entry_audit enable row level security;
-alter table public.leave_types enable row level security;
-alter table public.leave_balances enable row level security;
-alter table public.holiday_calendars enable row level security;
-alter table public.blackout_periods enable row level security;
-alter table public.time_off_requests enable row level security;
-alter table public.leave_request_audit enable row level security;
-alter table public.equipment_items enable row level security;
-alter table public.access_grants enable row level security;
-alter table public.exit_interviews enable row level security;
-alter table public.jobs enable row level security;
-alter table public.job_postings enable row level security;
-alter table public.candidates enable row level security;
-alter table public.applications enable row level security;
-alter table public.pipeline_stages enable row level security;
-alter table public.interviews enable row level security;
-alter table public.evaluations enable row level security;
-alter table public.communications enable row level security;
-alter table public.talent_pool enable row level security;
-alter table public.conversations enable row level security;
-alter table public.messages enable row level security;
-
--- RLS Policies
--- Permission tables policies
-create policy permissions_select_authenticated on public.permissions
-for select to authenticated using (true);
-
-create policy permissions_manage_service on public.permissions
-for all to service_role using (true) with check (true);
-
-create policy role_permissions_select_authenticated on public.role_permissions
-for select to authenticated using (true);
-
-create policy role_permissions_manage_service on public.role_permissions
-for all to service_role using (true) with check (true);
-
--- Tenant policies
-create policy tenants_select_own on public.tenants
-for select to authenticated
-using (
-  exists (
-    select 1 from public.memberships m
-    where m.tenant_id = tenants.id
-      and m.user_id = public.app_current_user_id()
-  )
-);
-
-create policy tenants_update_admins on public.tenants
-for update to authenticated
-using (public.app_has_permission('members.manage', tenants.id))
-with check (public.app_has_permission('members.manage', tenants.id));
-
--- Membership policies
-create policy memberships_select_self on public.memberships
-for select to authenticated
-using (user_id = public.app_current_user_id());
-
-create policy memberships_insert_by_admins on public.memberships
-for insert to authenticated
-with check (
-  public.app_has_permission('members.manage', memberships.tenant_id)
-  and (
-    memberships.role <> 'owner'
-    or exists (
-      select 1
-      from public.memberships owner
-      where owner.tenant_id = memberships.tenant_id
-        and owner.user_id = public.app_current_user_id()
-        and owner.role = 'owner'
-    )
-  )
-);
-
-create policy memberships_update_by_admins on public.memberships
-for update to authenticated
-using (
-  public.app_has_permission('members.manage', memberships.tenant_id)
-  and (
-    memberships.role <> 'owner'
-    or exists (
-      select 1
-      from public.memberships owner
-      where owner.tenant_id = memberships.tenant_id
-        and owner.user_id = public.app_current_user_id()
-        and owner.role = 'owner'
-    )
-  )
-)
-with check (
-  public.app_has_permission('members.manage', memberships.tenant_id)
-  and (
-    memberships.role <> 'owner'
-    or exists (
-      select 1
-      from public.memberships owner
-      where owner.tenant_id = memberships.tenant_id
-        and owner.user_id = public.app_current_user_id()
-        and owner.role = 'owner'
-    )
-  )
-);
-
-create policy memberships_delete_by_admins on public.memberships
-for delete to authenticated
-using (
-  public.app_has_permission('members.manage', memberships.tenant_id)
-  and (
-    memberships.role <> 'owner'
-    or exists (
-      select 1
-      from public.memberships owner
-      where owner.tenant_id = memberships.tenant_id
-        and owner.user_id = public.app_current_user_id()
-        and owner.role = 'owner'
-    )
-  )
-);
-
--- Employee policies
-create policy employees_read on public.employees
-for select to authenticated
-using (public.app_has_permission('employees.read', employees.tenant_id));
-
-create policy employees_write_insert on public.employees
-for insert to authenticated
-with check (public.app_has_permission('employees.write', employees.tenant_id));
-
-create policy employees_write_update on public.employees
-for update to authenticated
-using (public.app_has_permission('employees.write', employees.tenant_id))
-with check (public.app_has_permission('employees.write', employees.tenant_id));
-
-create policy employees_write_delete on public.employees
-for delete to authenticated
-using (public.app_has_permission('employees.write', employees.tenant_id));
-
--- Employee custom field defs policies
-create policy employee_field_defs_read on public.employee_custom_field_defs
-for select to authenticated
-using (public.app_has_permission('employees.read', employee_custom_field_defs.tenant_id));
-
-create policy employee_field_defs_write_insert on public.employee_custom_field_defs
-for insert to authenticated
-with check (public.app_has_permission('employees.fields.manage', employee_custom_field_defs.tenant_id));
-
-create policy employee_field_defs_write_update on public.employee_custom_field_defs
-for update to authenticated
-using (public.app_has_permission('employees.fields.manage', employee_custom_field_defs.tenant_id))
-with check (public.app_has_permission('employees.fields.manage', employee_custom_field_defs.tenant_id));
-
-create policy employee_field_defs_write_delete on public.employee_custom_field_defs
-for delete to authenticated
-using (public.app_has_permission('employees.fields.manage', employee_custom_field_defs.tenant_id));
-
--- Profile policies
-create policy profiles_select_self on public.profiles
-for select to authenticated
-using (user_id = public.app_current_user_id());
-
-create policy profiles_insert_self on public.profiles
-for insert to authenticated
-with check (
-  user_id = public.app_current_user_id()
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = public.app_current_user_id()
-      and m.tenant_id = profiles.tenant_id
-  )
-);
-
-create policy profiles_update_self on public.profiles
-for update to authenticated
-using (
-  user_id = public.app_current_user_id()
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = public.app_current_user_id()
-      and m.tenant_id = profiles.tenant_id
-  )
-)
-with check (
-  user_id = public.app_current_user_id()
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = public.app_current_user_id()
-      and m.tenant_id = profiles.tenant_id
-  )
-);
-
--- Department policies
-create policy departments_read on public.departments
-for select to authenticated
-using (public.app_has_permission('departments.read', tenant_id));
-
-create policy departments_manage on public.departments
-for all to authenticated
-using (public.app_has_permission('departments.manage', tenant_id))
-with check (public.app_has_permission('departments.manage', tenant_id));
-
--- Office locations policies
-create policy office_locations_read on public.office_locations
-for select to authenticated
-using (
-  tenant_id in (
-    select tenant_id from public.memberships
-    where user_id = public.app_current_user_id()
-  )
-);
-
-create policy office_locations_write on public.office_locations
-for all to authenticated
-using (
-  tenant_id in (
-    select tenant_id from public.memberships
-    where user_id = public.app_current_user_id()
-      and (role = 'owner' or role = 'admin')
-  )
-)
-with check (
-  tenant_id in (
-    select tenant_id from public.memberships
-    where user_id = public.app_current_user_id()
-      and (role = 'owner' or role = 'admin')
-  )
-);
-
--- Teams policies
-create policy teams_read on public.teams
-for select to authenticated
-using (
-  tenant_id in (
-    select tenant_id from public.memberships
-    where user_id = public.app_current_user_id()
-  )
-);
-
-create policy teams_write on public.teams
-for all to authenticated
-using (
-  tenant_id in (
-    select tenant_id from public.memberships
-    where user_id = public.app_current_user_id()
-      and (role = 'owner' or role = 'admin' or role = 'manager')
-  )
-)
-with check (
-  tenant_id in (
-    select tenant_id from public.memberships
-    where user_id = public.app_current_user_id()
-      and (role = 'owner' or role = 'admin' or role = 'manager')
-  )
-);
-
-create policy team_members_read on public.team_members
-for select to authenticated
-using (
-  team_id in (
-    select id from public.teams
-    where tenant_id in (
-      select tenant_id from public.memberships
-      where user_id = public.app_current_user_id()
-    )
-  )
-);
-
-create policy team_members_write on public.team_members
-for all to authenticated
-using (
-  team_id in (
-    select id from public.teams
-    where tenant_id in (
-      select tenant_id from public.memberships
-      where user_id = public.app_current_user_id()
-        and (role = 'owner' or role = 'admin' or role = 'manager')
-    )
-  )
-)
-with check (
-  team_id in (
-    select id from public.teams
-    where tenant_id in (
-      select tenant_id from public.memberships
-      where user_id = public.app_current_user_id()
-        and (role = 'owner' or role = 'admin' or role = 'manager')
-    )
-  )
-);
-
--- Employee documents policies
-create policy employee_documents_read on public.employee_documents
-for select to authenticated
-using (public.app_has_permission('employees.documents.read', tenant_id));
-
-create policy employee_documents_write_insert on public.employee_documents
-for insert to authenticated
-with check (public.app_has_permission('employees.documents.write', tenant_id));
-
-create policy employee_documents_write_delete on public.employee_documents
-for delete to authenticated
-using (public.app_has_permission('employees.documents.write', tenant_id));
-
--- Document expiry notifications policies
-create policy document_expiry_notifications_read on public.document_expiry_notifications
-for select to authenticated
-using (
-  document_id in (
-    select id from public.employee_documents
-    where tenant_id in (
-      select tenant_id from public.memberships
-      where user_id = public.app_current_user_id()
-    )
-  )
-);
-
-create policy document_expiry_notifications_write on public.document_expiry_notifications
-for insert to authenticated
-with check (true);
-
--- Employee audit log policies
-create policy employee_audit_log_read on public.employee_audit_log
-for select to authenticated
-using (public.app_has_permission('employees.audit.read', tenant_id));
-
--- Employee status history policies
-create policy employee_status_history_read on public.employee_status_history
-for select to authenticated
-using (
-  exists (
-    select 1 from public.employees e 
-    where e.id = employee_status_history.employee_id 
-    and public.app_has_permission('employees.read', e.tenant_id)
-  )
-);
-
-create policy employee_status_history_write on public.employee_status_history
-for all to authenticated
-using (
-  exists (
-    select 1 from public.employees e 
-    where e.id = employee_status_history.employee_id 
-    and public.app_has_permission('employees.write', e.tenant_id)
-  )
-)
-with check (
-  exists (
-    select 1 from public.employees e 
-    where e.id = employee_status_history.employee_id 
-    and public.app_has_permission('employees.write', e.tenant_id)
-  )
-);
-
--- Workflow templates policies
-create policy workflow_templates_select_all on public.workflow_templates
-for select to authenticated using (true);
-
--- Workflows policies
-create policy workflows_select on public.workflows
-for select to authenticated
-using (
-  public.app_has_permission('workflows.read', workflows.tenant_id)
-  or public.app_has_permission('workflows.manage', workflows.tenant_id)
-);
-
-create policy workflows_modify on public.workflows
-for all to authenticated
-using (public.app_has_permission('workflows.manage', workflows.tenant_id))
-with check (public.app_has_permission('workflows.manage', workflows.tenant_id));
-
--- Workflow versions policies
-create policy workflow_versions_access on public.workflow_versions
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.workflows w
-    where w.id = workflow_versions.workflow_id
-      and (
-        public.app_has_permission('workflows.read', w.tenant_id)
-        or public.app_has_permission('workflows.manage', w.tenant_id)
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.workflows w
-    where w.id = workflow_versions.workflow_id
-      and public.app_has_permission('workflows.manage', w.tenant_id)
-  )
-);
-
--- Workflow nodes policies
-create policy workflow_nodes_access on public.workflow_nodes
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.workflow_versions v
-    join public.workflows w on w.id = v.workflow_id
-    where v.id = workflow_nodes.version_id
-      and (
-        public.app_has_permission('workflows.read', w.tenant_id)
-        or public.app_has_permission('workflows.manage', w.tenant_id)
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.workflow_versions v
-    join public.workflows w on w.id = v.workflow_id
-    where v.id = workflow_nodes.version_id
-      and public.app_has_permission('workflows.manage', w.tenant_id)
-  )
-);
-
--- Workflow edges policies
-create policy workflow_edges_access on public.workflow_edges
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.workflow_versions v
-    join public.workflows w on w.id = v.workflow_id
-    where v.id = workflow_edges.version_id
-      and (
-        public.app_has_permission('workflows.read', w.tenant_id)
-        or public.app_has_permission('workflows.manage', w.tenant_id)
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.workflow_versions v
-    join public.workflows w on w.id = v.workflow_id
-    where v.id = workflow_edges.version_id
-      and public.app_has_permission('workflows.manage', w.tenant_id)
-  )
-);
-
--- Workflow runs policies
-create policy workflow_runs_select on public.workflow_runs
-for select to authenticated
-using (
-  public.app_has_permission('workflows.read', workflow_runs.tenant_id)
-  or public.app_has_permission('workflows.run.manage', workflow_runs.tenant_id)
-  or public.app_has_permission('workflows.manage', workflow_runs.tenant_id)
-);
-
-create policy workflow_runs_modify on public.workflow_runs
-for all to authenticated
-using (
-  public.app_has_permission('workflows.run.manage', workflow_runs.tenant_id)
-  or public.app_has_permission('workflows.manage', workflow_runs.tenant_id)
-)
-with check (
-  public.app_has_permission('workflows.run.manage', workflow_runs.tenant_id)
-  or public.app_has_permission('workflows.manage', workflow_runs.tenant_id)
-);
-
--- Workflow run steps policies
-create policy workflow_run_steps_access on public.workflow_run_steps
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = workflow_run_steps.run_id
-      and (
-        public.app_has_permission('workflows.read', r.tenant_id)
-        or public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = workflow_run_steps.run_id
-      and (
-        public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-);
-
--- Workflow action queue policies
-create policy workflow_action_queue_access on public.workflow_action_queue
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = workflow_action_queue.run_id
-      and (
-        public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = workflow_action_queue.run_id
-      and (
-        public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-);
-
--- Workflow events policies
-create policy workflow_events_access on public.workflow_events
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = workflow_events.run_id
-      and (
-        public.app_has_permission('workflows.read', r.tenant_id)
-        or public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = workflow_events.run_id
-      and (
-        public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-);
-
--- Employee journey views policies
-create policy employee_journey_views_access on public.employee_journey_views
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = employee_journey_views.run_id
-      and (
-        public.app_has_permission('workflows.read', r.tenant_id)
-        or public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.workflow_runs r
-    where r.id = employee_journey_views.run_id
-      and (
-        public.app_has_permission('workflows.run.manage', r.tenant_id)
-        or public.app_has_permission('workflows.manage', r.tenant_id)
-      )
-  )
-);
-
--- Goals policies
-create policy goals_select on public.goals
-for select to authenticated
-using (
-  public.app_has_permission('goals.read', tenant_id)
-  or exists (
-    select 1
-    from public.employees e
-    where e.id = goals.employee_id
-      and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-  )
-);
-
-create policy goals_insert on public.goals
-for insert to authenticated
-with check (
-  public.app_has_permission('goals.write', tenant_id)
-  or exists (
-    select 1
-    from public.employees e
-    where e.id = goals.employee_id
-      and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-  )
-);
-
-create policy goals_update on public.goals
-for update to authenticated
-using (
-  public.app_has_permission('goals.write', tenant_id)
-  or exists (
-    select 1
-    from public.employees e
-    where e.id = goals.employee_id
-      and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-  )
-)
-with check (
-  public.app_has_permission('goals.write', tenant_id)
-  or exists (
-    select 1
-    from public.employees e
-    where e.id = goals.employee_id
-      and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-  )
-);
-
-create policy goals_delete on public.goals
-for delete to authenticated
-using (
-  public.app_has_permission('goals.write', tenant_id)
-  or exists (
-    select 1
-    from public.employees e
-    where e.id = goals.employee_id
-      and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-  )
-);
-
--- Goal key results policies
-create policy goal_key_results_select on public.goal_key_results
-for select to authenticated
-using (
-  exists (
-    select 1
-    from public.goals g
-    where g.id = goal_key_results.goal_id
-      and (
-        public.app_has_permission('goals.read', g.tenant_id)
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = g.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-);
-
-create policy goal_key_results_write on public.goal_key_results
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.goals g
-    where g.id = goal_key_results.goal_id
-      and (
-        public.app_has_permission('goals.write', g.tenant_id)
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = g.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.goals g
-    where g.id = goal_key_results.goal_id
-      and (
-        public.app_has_permission('goals.write', g.tenant_id)
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = g.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-);
-
--- Goal updates policies
-create policy goal_updates_select on public.goal_updates
-for select to authenticated
-using (
-  exists (
-    select 1
-    from public.goals g
-    where g.id = goal_updates.goal_id
-      and (
-        public.app_has_permission('goals.read', g.tenant_id)
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = g.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-);
-
-create policy goal_updates_insert on public.goal_updates
-for insert to authenticated
-with check (
-  exists (
-    select 1
-    from public.goals g
-    where g.id = goal_updates.goal_id
-      and (
-        public.app_has_permission('goals.write', g.tenant_id)
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = g.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-  and author_id = public.app_current_user_id()
-);
-
--- Check-ins policies
-create policy check_ins_select on public.check_ins
-for select to authenticated
-using (
-  public.app_has_permission('check_ins.read', tenant_id)
-  or manager_user_id = public.app_current_user_id()
-  or exists (
-    select 1
-    from public.employees e
-    where e.id = check_ins.employee_id
-      and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-  )
-);
-
-create policy check_ins_insert on public.check_ins
-for insert to authenticated
-with check (
-  public.app_has_permission('check_ins.write', tenant_id)
-  or manager_user_id = public.app_current_user_id()
-);
-
-create policy check_ins_update on public.check_ins
-for update to authenticated
-using (
-  public.app_has_permission('check_ins.write', tenant_id)
-  or manager_user_id = public.app_current_user_id()
-)
-with check (
-  public.app_has_permission('check_ins.write', tenant_id)
-  or manager_user_id = public.app_current_user_id()
-);
-
--- Check-in agendas policies
-create policy check_in_agendas_select on public.check_in_agendas
-for select to authenticated
-using (
-  exists (
-    select 1
-    from public.check_ins ci
-    where ci.id = check_in_agendas.check_in_id
-      and (
-        public.app_has_permission('check_ins.read', ci.tenant_id)
-        or ci.manager_user_id = public.app_current_user_id()
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = ci.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-);
-
-create policy check_in_agendas_write on public.check_in_agendas
-for all to authenticated
-using (
-  exists (
-    select 1
-    from public.check_ins ci
-    where ci.id = check_in_agendas.check_in_id
-      and (
-        public.app_has_permission('check_ins.write', ci.tenant_id)
-        or ci.manager_user_id = public.app_current_user_id()
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = ci.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.check_ins ci
-    where ci.id = check_in_agendas.check_in_id
-      and (
-        public.app_has_permission('check_ins.write', ci.tenant_id)
-        or ci.manager_user_id = public.app_current_user_id()
-        or exists (
-          select 1
-          from public.employees e
-          where e.id = ci.employee_id
-            and lower(coalesce(e.email, '')) = lower(coalesce((auth.jwt()->>'email')::text, ''))
-        )
-      )
-  )
-);
-
--- Check-in private notes policies
-create policy check_in_private_notes_select on public.check_in_private_notes
-for select to authenticated
-using (
-  exists (
-    select 1
-    from public.check_ins ci
-    where ci.id = check_in_private_notes.check_in_id
-      and (
-        public.app_has_permission('check_ins.read', ci.tenant_id)
-        or ci.manager_user_id = public.app_current_user_id()
-      )
-  )
-);
-
-create policy check_in_private_notes_upsert on public.check_in_private_notes
-for all to authenticated
-using (manager_user_id = public.app_current_user_id())
-with check (manager_user_id = public.app_current_user_id());
-
--- Time entries policies
-create policy time_entries_select_self_or_tenant on public.time_entries
-for select to authenticated
-using (
-  user_id = public.app_current_user_id()
-  or public.app_has_permission('time.read', tenant_id)
-);
-
-create policy time_entries_insert_self on public.time_entries
-for insert to authenticated
-with check (
-  user_id = public.app_current_user_id()
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = public.app_current_user_id()
-      and m.tenant_id = time_entries.tenant_id
-  )
-);
-
-create policy time_entries_update_self_or_time_write on public.time_entries
-for update to authenticated
-using (
-  (
-    user_id = public.app_current_user_id()
-    and exists (
-      select 1
-      from public.memberships m
-      where m.user_id = public.app_current_user_id()
-        and m.tenant_id = time_entries.tenant_id
-    )
-  )
-  or public.app_has_permission('time.write', tenant_id)
-)
-with check (
-  (
-    user_id = public.app_current_user_id()
-    and exists (
-      select 1
-      from public.memberships m
-      where m.user_id = public.app_current_user_id()
-        and m.tenant_id = time_entries.tenant_id
-    )
-  )
-  or public.app_has_permission('time.write', tenant_id)
-);
-
-create policy time_entries_delete_time_write on public.time_entries
-for delete to authenticated
-using (public.app_has_permission('time.write', tenant_id));
-
--- Overtime balances policies
-create policy overtime_balances_read on public.overtime_balances
-for select to authenticated
-using (
-  public.app_has_permission('overtime.view', tenant_id)
-  and (user_id = auth.uid() or public.app_has_permission('time.view_team', tenant_id))
-);
-
-create policy overtime_balances_manage on public.overtime_balances
-for all to authenticated
-using (public.app_has_permission('overtime.approve', tenant_id))
-with check (public.app_has_permission('overtime.approve', tenant_id));
-
--- Overtime rules policies
-create policy overtime_rules_read on public.overtime_rules
-for select to authenticated
-using (public.app_has_permission('overtime.view', tenant_id));
-
-create policy overtime_rules_manage on public.overtime_rules
-for all to authenticated
-using (public.app_has_permission('overtime.approve', tenant_id))
-with check (public.app_has_permission('overtime.approve', tenant_id));
-
--- Overtime requests policies
-create policy overtime_requests_read_own on public.overtime_requests
-for select to authenticated
-using (user_id = auth.uid());
-
-create policy overtime_requests_read_team on public.overtime_requests
-for select to authenticated
-using (
-  exists (
-    select 1 from public.employees e
-    where e.user_id = auth.uid()
-    and e.tenant_id = overtime_requests.tenant_id
-    and (
-      public.app_has_permission('time.view_team', e.tenant_id)
-      or exists (
-        select 1 from public.employees ee
-        where ee.manager_id = e.id
-        and ee.user_id = overtime_requests.user_id
-        and ee.tenant_id = overtime_requests.tenant_id
-      )
-    )
-  )
-);
-
-create policy overtime_requests_create on public.overtime_requests
-for insert to authenticated
-with check (
-  user_id = auth.uid()
-  and exists (
-    select 1 from public.memberships m
-    where m.user_id = auth.uid()
-    and m.tenant_id = overtime_requests.tenant_id
-  )
-);
-
-create policy overtime_requests_update on public.overtime_requests
-for update to authenticated
-using (
-  exists (
-    select 1 from public.employees e
-    where e.user_id = auth.uid()
-    and e.tenant_id = overtime_requests.tenant_id
-    and (
-      public.app_has_permission('time.approve', e.tenant_id)
-      or exists (
-        select 1 from public.employees ee
-        where ee.manager_id = e.id
-        and ee.user_id = overtime_requests.user_id
-        and ee.tenant_id = overtime_requests.tenant_id
-      )
-    )
-  )
-)
-with check (
-  exists (
-    select 1 from public.employees e
-    where e.user_id = auth.uid()
-    and e.tenant_id = overtime_requests.tenant_id
-    and (
-      public.app_has_permission('time.approve', e.tenant_id)
-      or exists (
-        select 1 from public.employees ee
-        where ee.manager_id = e.id
-        and ee.user_id = overtime_requests.user_id
-        and ee.tenant_id = overtime_requests.tenant_id
-      )
-    )
-  )
-);
-
-create policy overtime_requests_cancel on public.overtime_requests
-for update to authenticated
-using (
-  user_id = auth.uid()
-  and status = 'pending'
-)
-with check (
-  user_id = auth.uid()
-  and status = 'cancelled'
-);
-
--- Time entry audit policies
-create policy time_entry_audit_read on public.time_entry_audit
-for select to authenticated
-using (
-  exists (
-    select 1 from public.time_entries te 
-    where te.id = time_entry_audit.time_entry_id 
-    and public.app_has_permission('time.view_team', te.tenant_id)
-  )
-);
-
--- Leave types policies
-create policy leave_types_read on public.leave_types
-for select to authenticated
-using (public.app_has_permission('time.read', tenant_id));
-
-create policy leave_types_manage on public.leave_types
-for all to authenticated
-using (public.app_has_permission('leave.manage_types', tenant_id))
-with check (public.app_has_permission('leave.manage_types', tenant_id));
-
--- Leave balances policies
-create policy leave_balances_read_own on public.leave_balances
-for select to authenticated
-using (
-  exists (
-    select 1 from public.employees e 
-    where e.id = leave_balances.employee_id 
-    and e.user_id = auth.uid()
-    and e.tenant_id = leave_balances.tenant_id
-  )
-);
-
-create policy leave_balances_read_team on public.leave_balances
-for select to authenticated
-using (
-  public.app_has_permission('leave.view_team_calendar', tenant_id)
-  and exists (
-    select 1 from public.employees e 
-    where e.id = leave_balances.employee_id 
-    and (
-      e.manager_id in (
-        select id from public.employees where user_id = auth.uid()
-      )
-      or e.user_id = auth.uid()
-    )
-    and e.tenant_id = leave_balances.tenant_id
-  )
-);
-
-create policy leave_balances_manage on public.leave_balances
-for all to authenticated
-using (public.app_has_permission('leave.manage_balances', tenant_id))
-with check (public.app_has_permission('leave.manage_balances', tenant_id));
-
--- Holiday calendars policies
-create policy holiday_calendars_read on public.holiday_calendars
-for select to authenticated
-using (public.app_has_permission('time.read', tenant_id));
-
-create policy holiday_calendars_manage on public.holiday_calendars
-for all to authenticated
-using (public.app_has_permission('leave.manage_holidays', tenant_id))
-with check (public.app_has_permission('leave.manage_holidays', tenant_id));
-
--- Blackout periods policies
-create policy blackout_periods_read on public.blackout_periods
-for select to authenticated
-using (
-  exists (
-    select 1 from public.memberships m
-    where m.user_id = auth.uid()
-    and m.tenant_id = blackout_periods.tenant_id
-  )
-);
-
-create policy blackout_periods_manage on public.blackout_periods
-for all to authenticated
-using (
-  exists (
-    select 1 from public.memberships m
-    join public.role_permissions rp on rp.role = m.role
-    where m.user_id = auth.uid()
-    and m.tenant_id = blackout_periods.tenant_id
-    and rp.permission_key = 'leave.manage_holidays'
-  )
-)
-with check (
-  exists (
-    select 1 from public.memberships m
-    join public.role_permissions rp on rp.role = m.role
-    where m.user_id = auth.uid()
-    and m.tenant_id = blackout_periods.tenant_id
-    and rp.permission_key = 'leave.manage_holidays'
-  )
-);
-
--- Time off requests policies (using corrected policy from migration 7)
-create policy time_off_requests_select_self_or_tenant on public.time_off_requests
-for select to authenticated
-using (
-  user_id = public.app_current_user_id()
-  or public.app_has_permission('time.read', tenant_id)
-);
-
-create policy time_off_requests_insert_self on public.time_off_requests
-for insert to authenticated
-with check (
-  user_id = public.app_current_user_id()
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = public.app_current_user_id()
-      and m.tenant_id = time_off_requests.tenant_id
-  )
-);
-
-create policy time_off_requests_update_approvers on public.time_off_requests
-for update to authenticated
-using (public.app_has_permission('leave.approve_requests', tenant_id))
-with check (public.app_has_permission('leave.approve_requests', tenant_id));
-
-create policy time_off_requests_cancel_self on public.time_off_requests
-for update to authenticated
-using (
-  user_id = public.app_current_user_id()
-  and status = 'pending'
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = public.app_current_user_id()
-      and m.tenant_id = time_off_requests.tenant_id
-  )
-)
-with check (
-  user_id = public.app_current_user_id()
-  and status in ('pending','cancelled')
-  and approver_user_id is null
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = public.app_current_user_id()
-      and m.tenant_id = time_off_requests.tenant_id
-  )
-);
-
--- Leave request audit policies
-create policy leave_request_audit_read on public.leave_request_audit
-for select to authenticated
-using (
-  public.app_has_permission('leave.approve_requests', tenant_id)
-  or exists (
-    select 1 from public.time_off_requests tor
-    join public.employees e on tor.user_id = e.user_id
-    where tor.id = leave_request_audit.request_id
-    and e.user_id = auth.uid()
-    and e.tenant_id = tor.tenant_id
-  )
-);
-
-create policy leave_request_audit_insert on public.leave_request_audit
-for insert to authenticated
-with check (
-  public.app_has_permission('leave.approve_requests', tenant_id)
-  or exists (
-    select 1 from public.time_off_requests tor
-    join public.employees e on tor.user_id = e.user_id
-    where tor.id = request_id
-    and e.user_id = auth.uid()
-    and e.tenant_id = tor.tenant_id
-  )
-);
-
--- Equipment items policies
-create policy equipment_items_read on public.equipment_items
-for select to authenticated
-using (public.app_has_permission('employees.read', tenant_id));
-
-create policy equipment_items_write on public.equipment_items
-for all to authenticated
-using (public.app_has_permission('employees.write', tenant_id))
-with check (public.app_has_permission('employees.write', tenant_id));
-
--- Access grants policies
-create policy access_grants_read on public.access_grants
-for select to authenticated
-using (public.app_has_permission('employees.read', tenant_id));
-
-create policy access_grants_write on public.access_grants
-for all to authenticated
-using (public.app_has_permission('employees.write', tenant_id))
-with check (public.app_has_permission('employees.write', tenant_id));
-
--- Exit interviews policies
-create policy exit_interviews_read on public.exit_interviews
-for select to authenticated
-using (public.app_has_permission('employees.read', tenant_id));
-
-create policy exit_interviews_write on public.exit_interviews
-for all to authenticated
-using (public.app_has_permission('employees.write', tenant_id))
-with check (public.app_has_permission('employees.write', tenant_id));
-
-create policy exit_interviews_insert_self on public.exit_interviews
-for insert to authenticated
-with check (
-  exists (
-    select 1
-    from public.employees e
-    where e.id = exit_interviews.employee_id
-      and e.user_id = public.app_current_user_id()
-      and e.tenant_id = exit_interviews.tenant_id
-  )
-);
-
--- Jobs policies
-create policy jobs_read on public.jobs
-for select to authenticated
-using (public.app_has_permission('recruiting.jobs.read', tenant_id));
-
-create policy jobs_write on public.jobs
-for all to authenticated
-using (public.app_has_permission('recruiting.jobs.write', tenant_id))
-with check (public.app_has_permission('recruiting.jobs.write', tenant_id));
-
--- Job postings policies
-create policy job_postings_read on public.job_postings
-for select to authenticated
-using (
-  exists (
-    select 1 from public.jobs j
-    where j.id = job_postings.job_id
-    and public.app_has_permission('recruiting.jobs.read', j.tenant_id)
-  )
-);
-
-create policy job_postings_write on public.job_postings
-for all to authenticated
-using (
-  exists (
-    select 1 from public.jobs j
-    where j.id = job_postings.job_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-)
-with check (
-  exists (
-    select 1 from public.jobs j
-    where j.id = job_postings.job_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-);
-
--- Candidates policies
-create policy candidates_read on public.candidates
-for select to authenticated
-using (public.app_has_permission('recruiting.candidates.read', tenant_id));
-
-create policy candidates_write on public.candidates
-for all to authenticated
-using (public.app_has_permission('recruiting.candidates.write', tenant_id))
-with check (public.app_has_permission('recruiting.candidates.write', tenant_id));
-
--- Applications policies
-create policy applications_read on public.applications
-for select to authenticated
-using (
-  exists (
-    select 1 from public.jobs j
-    where j.id = applications.job_id
-    and public.app_has_permission('recruiting.jobs.read', j.tenant_id)
-  )
-);
-
-create policy applications_write on public.applications
-for all to authenticated
-using (
-  exists (
-    select 1 from public.jobs j
-    where j.id = applications.job_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-)
-with check (
-  exists (
-    select 1 from public.jobs j
-    where j.id = applications.job_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-);
-
--- Pipeline stages policies
-create policy pipeline_stages_read on public.pipeline_stages
-for select to authenticated
-using (
-  exists (
-    select 1 from public.jobs j
-    where j.id = pipeline_stages.job_id
-    and public.app_has_permission('recruiting.jobs.read', j.tenant_id)
-  )
-);
-
-create policy pipeline_stages_write on public.pipeline_stages
-for all to authenticated
-using (
-  exists (
-    select 1 from public.jobs j
-    where j.id = pipeline_stages.job_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-)
-with check (
-  exists (
-    select 1 from public.jobs j
-    where j.id = pipeline_stages.job_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-);
-
--- Interviews policies
-create policy interviews_read on public.interviews
-for select to authenticated
-using (
-  exists (
-    select 1 from public.applications a
-    join public.jobs j on j.id = a.job_id
-    where a.id = interviews.application_id
-    and public.app_has_permission('recruiting.jobs.read', j.tenant_id)
-  )
-);
-
-create policy interviews_write on public.interviews
-for all to authenticated
-using (
-  exists (
-    select 1 from public.applications a
-    join public.jobs j on j.id = a.job_id
-    where a.id = interviews.application_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-)
-with check (
-  exists (
-    select 1 from public.applications a
-    join public.jobs j on j.id = a.job_id
-    where a.id = interviews.application_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-);
-
--- Evaluations policies
-create policy evaluations_read on public.evaluations
-for select to authenticated
-using (
-  exists (
-    select 1 from public.interviews i
-    join public.applications a on a.id = i.application_id
-    join public.jobs j on j.id = a.job_id
-    where i.id = evaluations.interview_id
-    and public.app_has_permission('recruiting.jobs.read', j.tenant_id)
-  )
-);
-
-create policy evaluations_write on public.evaluations
-for all to authenticated
-using (
-  exists (
-    select 1 from public.interviews i
-    join public.applications a on a.id = i.application_id
-    join public.jobs j on j.id = a.job_id
-    where i.id = evaluations.interview_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-)
-with check (
-  exists (
-    select 1 from public.interviews i
-    join public.applications a on a.id = i.application_id
-    join public.jobs j on j.id = a.job_id
-    where i.id = evaluations.interview_id
-    and public.app_has_permission('recruiting.jobs.write', j.tenant_id)
-  )
-);
-
--- Communications policies
-create policy communications_read on public.communications
-for select to authenticated
-using (public.app_has_permission('recruiting.jobs.read', tenant_id));
-
-create policy communications_write on public.communications
-for all to authenticated
-using (public.app_has_permission('recruiting.jobs.write', tenant_id))
-with check (public.app_has_permission('recruiting.jobs.write', tenant_id));
-
--- Talent pool policies
-create policy talent_pool_read on public.talent_pool
-for select to authenticated
-using (public.app_has_permission('recruiting.candidates.read', tenant_id));
-
-create policy talent_pool_write on public.talent_pool
-for all to authenticated
-using (public.app_has_permission('recruiting.candidates.write', tenant_id))
-with check (public.app_has_permission('recruiting.candidates.write', tenant_id));
-
--- Conversations policies
-create policy conversations_select_own on public.conversations
-for select to authenticated
-using (
-  created_by = (select public.app_current_user_id())
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = (select public.app_current_user_id())
-      and m.tenant_id = conversations.tenant_id
-  )
-);
-
-create policy conversations_insert_own on public.conversations
-for insert to authenticated
-with check (
-  created_by = (select public.app_current_user_id())
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = (select public.app_current_user_id())
-      and m.tenant_id = conversations.tenant_id
-  )
-);
-
-create policy conversations_update_own on public.conversations
-for update to authenticated
-using (
-  created_by = (select public.app_current_user_id())
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = (select public.app_current_user_id())
-      and m.tenant_id = conversations.tenant_id
-  )
-)
-with check (
-  created_by = (select public.app_current_user_id())
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = (select public.app_current_user_id())
-      and m.tenant_id = conversations.tenant_id
-  )
-);
-
-create policy conversations_delete_own on public.conversations
-for delete to authenticated
-using (
-  created_by = (select public.app_current_user_id())
-  and exists (
-    select 1
-    from public.memberships m
-    where m.user_id = (select public.app_current_user_id())
-      and m.tenant_id = conversations.tenant_id
-  )
-);
-
--- Messages policies
-create policy messages_select_own_conversations on public.messages
-for select to authenticated
-using (
-  exists (
-    select 1
-    from public.conversations c
-    where c.id = messages.conversation_id
-      and c.created_by = (select public.app_current_user_id())
-      and exists (
-        select 1
-        from public.memberships m
-        where m.user_id = (select public.app_current_user_id())
-          and m.tenant_id = messages.tenant_id
-      )
-  )
-);
-
-create policy messages_insert_own_conversations on public.messages
-for insert to authenticated
-with check (
-  exists (
-    select 1
-    from public.conversations c
-    where c.id = messages.conversation_id
-      and c.created_by = (select public.app_current_user_id())
-      and exists (
-        select 1
-        from public.memberships m
-        where m.user_id = (select public.app_current_user_id())
-          and m.tenant_id = messages.tenant_id
-      )
-  )
-);
-
--- ==============================================
--- 23. HELPER VIEWS
--- ==============================================
-
--- Employee summary view
-create or replace view public.employee_summary as
-select 
-  e.id,
-  e.tenant_id,
-  e.employee_number,
-  e.name,
-  e.email,
-  e.job_title,
-  e.status,
-  e.profile_completion_pct,
-  e.created_at,
-  e.updated_at,
-  d.name as department_name,
-  d.id as department_id,
-  m.name as manager_name,
-  m.id as manager_id
-from public.employees e
-left join public.departments d on e.department_id = d.id
-left join public.employees m on e.manager_id = m.id;
-
--- Department hierarchy view
-create or replace view public.department_hierarchy as
-with recursive dept_tree as (
-  select 
-    id,
-    tenant_id,
-    name,
-    description,
-    parent_id,
-    head_employee_id,
-    cost_center,
-    0 as level,
-    array[id] as path,
-    name as full_path
-  from public.departments
-  where parent_id is null
-  
-  union all
-  
-  select 
-    d.id,
-    d.tenant_id,
-    d.name,
-    d.description,
-    d.parent_id,
-    d.head_employee_id,
-    d.cost_center,
-    dt.level + 1,
-    dt.path || d.id,
-    dt.full_path || ' > ' || d.name
-  from public.departments d
-  join dept_tree dt on d.parent_id = dt.id
-)
-select 
-  dt.*,
-  e.name as head_name,
-  e.email as head_email,
-  (select count(*) from public.employees where department_id = dt.id) as employee_count
-from dept_tree dt
-left join public.employees e on dt.head_employee_id = e.id
-order by dt.tenant_id, dt.level, dt.name;
-
 -- Employee goal summaries view
 create or replace view public.employee_goal_summaries as
 select
@@ -3546,4 +2725,3 @@ select
 from public.exit_interviews ei
 left join public.employees e on ei.employee_id = e.id
 left join public.employees conductor on ei.conducted_by = conductor.user_id and ei.tenant_id = conductor.tenant_id;
-
